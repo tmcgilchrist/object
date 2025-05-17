@@ -1,0 +1,6 @@
+(library
+ (name object)
+ (public_name object)
+ (wrapped false)
+ (libraries unix bigarray integers)
+ (synopsis "OCaml library for reading and writing object file formats"))
