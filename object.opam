@@ -7,8 +7,6 @@ license: "MIT"
 depends: [
   "dune" {>= "3.0"}
   "ocaml" {>= "4.08"}
-  "unix"
-  "bigarray"
   "cmdliner" {with-test}
   "odoc" {with-doc}
 ]

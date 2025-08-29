@@ -8,8 +8,6 @@
   (name object)
   (depends
     (ocaml (>= 4.08))
-    unix
-    bigarray
     (cmdliner :with-test))
   (synopsis "A unified interface for reading and writing object file formats")
   (description "A unified interface for reading and writing object file formats"))
