@@ -2,22 +2,22 @@ open Types
 
 (** Generic abstraction over ELF and Mach-O object file formats *)
 
+type arch =
+  [ `X86 | `X86_64 | `ARM | `ARM64 | `POWERPC | `POWERPC64 | `Unknown of int ]
 (** Architecture types *)
-type arch = [ `X86 | `X86_64 | `ARM | `ARM64 | `POWERPC | `POWERPC64 | `Unknown of int ]
 
 (** File format types *)
 type format = ELF | MACHO
 
-(** Generic section representation *)
 type section = {
   name : string;
   size : u64;
   address : u64;
-  offset : u64 option; (** File offset, if available *)
-  section_type : string; (** Format-specific type description *)
+  offset : u64 option;  (** File offset, if available *)
+  section_type : string;  (** Format-specific type description *)
 }
+(** Generic section representation *)
 
-(** Generic segment representation *)
 type segment = {
   name : string;
   virtual_address : u64;
@@ -26,8 +26,8 @@ type segment = {
   file_size : u64;
   sections : section array;
 }
+(** Generic segment representation *)
 
-(** Generic header information *)
 type header = {
   format : format;
   architecture : arch;
@@ -35,34 +35,36 @@ type header = {
   is_executable : bool;
   is_64bit : bool;
 }
+(** Generic header information *)
 
-(** Object file representation *)
 type t = {
   header : header;
   segments : segment array;
   all_sections : section array;
 }
+(** Object file representation *)
 
-(** Parse an object file from a buffer *)
 val read : Buffer.t -> t
+(** Parse an object file from a buffer *)
 
-(** Get all sections from the object file *)
 val sections : t -> section array
+(** Get all sections from the object file *)
 
-(** Get all segments from the object file *)
 val segments : t -> segment array
+(** Get all segments from the object file *)
 
-(** Find a section by name *)
 val find_section : t -> string -> section option
+(** Find a section by name *)
 
-(** Find a segment by name *)
 val find_segment : t -> string -> segment option
+(** Find a segment by name *)
 
-(** Read section contents *)
 val section_contents : Buffer.t -> t -> section -> Buffer.t
+(** Read section contents *)
 
-(** Get format-specific information *)
 val format : t -> format
+(** Get format-specific information *)
+
 val architecture : t -> arch
 val is_64bit : t -> bool
 val is_executable : t -> bool

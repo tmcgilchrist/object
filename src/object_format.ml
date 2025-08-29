@@ -1,6 +1,8 @@
 open Types
 
-type arch = [ `X86 | `X86_64 | `ARM | `ARM64 | `POWERPC | `POWERPC64 | `Unknown of int ]
+type arch =
+  [ `X86 | `X86_64 | `ARM | `ARM64 | `POWERPC | `POWERPC64 | `Unknown of int ]
+
 type format = ELF | MACHO
 
 type section = {
@@ -40,7 +42,7 @@ let macho_cpu_type_to_arch = function
   | `X86_64 -> `X86_64
   | `ARM -> `ARM
   | `ARM64 -> `ARM64
-  | `ARM64_32 -> `ARM64  (* Treat ARM64_32 as ARM64 *)
+  | `ARM64_32 -> `ARM64 (* Treat ARM64_32 as ARM64 *)
   | `POWERPC -> `POWERPC
   | `POWERPC64 -> `POWERPC64
   | `Unknown n -> `Unknown n
@@ -48,17 +50,18 @@ let macho_cpu_type_to_arch = function
 (** Convert ELF machine type to generic arch *)
 let elf_machine_to_arch (machine : Types.u16) =
   match Unsigned.UInt16.to_int machine with
-  | 3 -> `X86        (* EM_386 *)
-  | 62 -> `X86_64     (* EM_X86_64 *)
-  | 40 -> `ARM        (* EM_ARM *)
-  | 183 -> `ARM64     (* EM_AARCH64 *)
-  | 20 -> `POWERPC    (* EM_PPC *)
-  | 21 -> `POWERPC64  (* EM_PPC64 *)
+  | 3 -> `X86 (* EM_386 *)
+  | 62 -> `X86_64 (* EM_X86_64 *)
+  | 40 -> `ARM (* EM_ARM *)
+  | 183 -> `ARM64 (* EM_AARCH64 *)
+  | 20 -> `POWERPC (* EM_PPC *)
+  | 21 -> `POWERPC64 (* EM_PPC64 *)
   | n -> `Unknown n
 
 (** Convert Mach-O section to generic section *)
 let macho_section_to_generic (sec : Macho.section) : section =
-  let section_type = match sec.sec_type with
+  let section_type =
+    match sec.sec_type with
     | `S_REGULAR -> "REGULAR"
     | `S_ZEROFILL -> "ZEROFILL"
     | `S_CSTRING_LITERALS -> "CSTRING"
@@ -75,7 +78,8 @@ let macho_section_to_generic (sec : Macho.section) : section =
 
 (** Convert ELF section to generic section *)
 let elf_section_to_generic (sec : Elf.section) : section =
-  let section_type = match Unsigned.UInt32.to_int sec.sh_type with
+  let section_type =
+    match Unsigned.UInt32.to_int sec.sh_type with
     | 1 -> "PROGBITS"
     | 3 -> "STRTAB"
     | 8 -> "NOBITS"
@@ -107,30 +111,41 @@ let detect_format (buf : Buffer.t) : format =
   let magic_int = Unsigned.UInt32.to_int magic in
   match magic_int with
   | 0x7f454c46 -> ELF (* ELF magic: \x7fELF *)
-  | 0xFEEDFACE | 0xFEEDFACF | 0xCEFAEDFE | 0xCFFAEDFE -> MACHO (* Mach-O magics *)
+  | 0xFEEDFACE | 0xFEEDFACF | 0xCEFAEDFE | 0xCFFAEDFE ->
+      MACHO (* Mach-O magics *)
   | _ -> failwith "Unsupported file format"
 
 (** Parse Mach-O file *)
 let parse_macho (buf : Buffer.t) : t =
   let header, commands = Macho.read buf in
 
-  let generic_header = {
-    format = MACHO;
-    architecture = macho_cpu_type_to_arch header.cpu_type;
-    entry_point = None; (* Mach-O doesn't have a simple entry point *)
-    is_executable = (match header.file_type with `EXECUTE -> true | _ -> false);
-    is_64bit = (match header.magic with MAGIC64 | CIGAM64 -> true | _ -> false);
-  } in
+  let generic_header =
+    {
+      format = MACHO;
+      architecture = macho_cpu_type_to_arch header.cpu_type;
+      entry_point = None;
+      (* Mach-O doesn't have a simple entry point *)
+      is_executable =
+        (match header.file_type with `EXECUTE -> true | _ -> false);
+      is_64bit =
+        (match header.magic with MAGIC64 | CIGAM64 -> true | _ -> false);
+    }
+  in
 
-  let segments = List.fold_left (fun acc cmd -> match cmd with
-    | Macho.LC_SEGMENT_64 (lazy seg) | Macho.LC_SEGMENT_32 (lazy seg) ->
-        (macho_segment_to_generic seg) :: acc
-    | _ -> acc
-  ) [] commands |> List.rev |> Array.of_list in
+  let segments =
+    List.fold_left
+      (fun acc cmd ->
+        match cmd with
+        | Macho.LC_SEGMENT_64 (lazy seg) | Macho.LC_SEGMENT_32 (lazy seg) ->
+            macho_segment_to_generic seg :: acc
+        | _ -> acc)
+      [] commands
+    |> List.rev |> Array.of_list
+  in
 
-  let all_sections = Array.fold_left (fun acc seg ->
-    Array.append acc seg.sections
-  ) [||] segments in
+  let all_sections =
+    Array.fold_left (fun acc seg -> Array.append acc seg.sections) [||] segments
+  in
 
   { header = generic_header; segments; all_sections }
 
@@ -139,48 +154,60 @@ let parse_elf (buf : Buffer.t) : t =
   let elf_header, sections = Elf.read_elf buf in
   let programs = Elf.read_programs buf elf_header in
 
-  let generic_header = {
-    format = ELF;
-    architecture = elf_machine_to_arch elf_header.e_machine;
-    entry_point = Some elf_header.e_entry;
-    is_executable = (Unsigned.UInt16.to_int elf_header.e_type = 2); (* ET_EXEC = 2 *)
-    is_64bit = (Unsigned.UInt8.to_int elf_header.e_ident.elf_class = 2); (* ELFCLASS64 = 2 *)
-  } in
+  let generic_header =
+    {
+      format = ELF;
+      architecture = elf_machine_to_arch elf_header.e_machine;
+      entry_point = Some elf_header.e_entry;
+      is_executable = Unsigned.UInt16.to_int elf_header.e_type = 2;
+      (* ET_EXEC = 2 *)
+      is_64bit = Unsigned.UInt8.to_int elf_header.e_ident.elf_class = 2;
+      (* ELFCLASS64 = 2 *)
+    }
+  in
 
   let generic_sections = Array.map elf_section_to_generic sections in
 
   (* Create segments from ELF program headers *)
-  let segments = Array.map (fun (prog : Elf.program) ->
-    let related_sections = Array.fold_left (fun acc sec ->
-      if Unsigned.UInt64.compare sec.address prog.p_vaddr >= 0 &&
-         Unsigned.UInt64.compare sec.address
-           (Unsigned.UInt64.add prog.p_vaddr prog.p_memsz) < 0
-      then sec :: acc
-      else acc
-    ) [] generic_sections |> List.rev |> Array.of_list in
+  let segments =
+    Array.map
+      (fun (prog : Elf.program) ->
+        let related_sections =
+          Array.fold_left
+            (fun acc sec ->
+              if
+                Unsigned.UInt64.compare sec.address prog.p_vaddr >= 0
+                && Unsigned.UInt64.compare sec.address
+                     (Unsigned.UInt64.add prog.p_vaddr prog.p_memsz)
+                   < 0
+              then sec :: acc
+              else acc)
+            [] generic_sections
+          |> List.rev |> Array.of_list
+        in
 
-    {
-      name = (match prog.p_type with
-        | `PT_LOAD -> "LOAD"
-        | `PT_DYNAMIC -> "DYNAMIC"
-        | `PT_INTERP -> "INTERP"
-        | `PT_NOTE -> "NOTE"
-        | _ -> "OTHER");
-      virtual_address = prog.p_vaddr;
-      virtual_size = prog.p_memsz;
-      file_offset = prog.p_offset;
-      file_size = prog.p_filesz;
-      sections = related_sections;
-    }
-  ) programs in
+        {
+          name =
+            (match prog.p_type with
+            | `PT_LOAD -> "LOAD"
+            | `PT_DYNAMIC -> "DYNAMIC"
+            | `PT_INTERP -> "INTERP"
+            | `PT_NOTE -> "NOTE"
+            | _ -> "OTHER");
+          virtual_address = prog.p_vaddr;
+          virtual_size = prog.p_memsz;
+          file_offset = prog.p_offset;
+          file_size = prog.p_filesz;
+          sections = related_sections;
+        })
+      programs
+  in
 
   { header = generic_header; segments; all_sections = generic_sections }
 
 (** Main read function *)
 let read (buf : Buffer.t) : t =
-  match detect_format buf with
-  | ELF -> parse_elf buf
-  | MACHO -> parse_macho buf
+  match detect_format buf with ELF -> parse_elf buf | MACHO -> parse_macho buf
 
 let sections t = t.all_sections
 let segments t = t.segments
@@ -192,7 +219,7 @@ let find_segment (t : t) name =
   Array.find_opt (fun (seg : segment) -> seg.name = name) t.segments
 
 let section_contents buf (t : t) (section : section) =
-  match t.header.format, section.offset with
+  match (t.header.format, section.offset) with
   | MACHO, Some offset ->
       Bigarray.Array1.sub buf
         (Unsigned.UInt64.to_int offset)
@@ -201,8 +228,7 @@ let section_contents buf (t : t) (section : section) =
       Bigarray.Array1.sub buf
         (Unsigned.UInt64.to_int offset)
         (Unsigned.UInt64.to_int section.size)
-  | _, None ->
-      invalid_arg "Section has no file offset"
+  | _, None -> invalid_arg "Section has no file offset"
 
 let format t = t.header.format
 let architecture t = t.header.architecture
