@@ -122,7 +122,16 @@ type program_type =
   | `PT_HIPROC ]
 
 (* Legal values for p_flags (segment flags). *)
-type program_flags = [ `PF_X | `PF_W | `PF_R | `PF_RX | `PF_RW | `PF_WX | `PF_RWX | `PF_MASKOS | `PF_MASKPROC ]
+type program_flags =
+  [ `PF_X
+  | `PF_W
+  | `PF_R
+  | `PF_RX
+  | `PF_RW
+  | `PF_WX
+  | `PF_RWX
+  | `PF_MASKOS
+  | `PF_MASKPROC ]
 
 type program = {
   p_type : program_type;
