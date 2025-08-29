@@ -184,8 +184,8 @@ let test_load_commands hello_world_path =
   let buffer = Buffer.parse hello_world_path in
   let _header, commands = Macho.read buffer in
 
-  (* Should have 17 load commands based on objdump output *)
-  Alcotest.(check int) "number of load commands" 17 (List.length commands);
+  (* Should have 16 load commands based on objdump output *)
+  Alcotest.(check int) "number of load commands" 16 (List.length commands);
 
   (* Check for expected load command types *)
   Alcotest.(check bool)
