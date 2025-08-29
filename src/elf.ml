@@ -122,7 +122,7 @@ type program_type =
   | `PT_HIPROC ]
 
 (* Legal values for p_flags (segment flags). *)
-type program_flags = [ `PF_X | `PF_W | `PF_R | `PF_MASKOS | `PF_MASKPROC ]
+type program_flags = [ `PF_X | `PF_W | `PF_R | `PF_RX | `PF_RW | `PF_WX | `PF_RWX | `PF_MASKOS | `PF_MASKPROC ]
 
 type program = {
   p_type : program_type;
@@ -228,10 +228,15 @@ let program_type x =
   | s -> invalid_format (Printf.sprintf "Unrecognised program_type value %x" s)
 
 let program_flags x =
-  match Unsigned.UInt32.to_int x with
+  let flags = Unsigned.UInt32.to_int x in
+  match flags with
   | 0x00000001 -> `PF_X (* (1 << 0) *)
   | 0x00000002 -> `PF_W (* (1 << 1) *)
+  | 0x00000003 -> `PF_WX (* W+X combination *)
   | 0x00000004 -> `PF_R (* (1 << 2) *)
+  | 0x00000005 -> `PF_RX (* R+X combination *)
+  | 0x00000006 -> `PF_RW (* R+W combination *)
+  | 0x00000007 -> `PF_RWX (* R+W+X combination *)
   | 0x0ff00000 -> `PF_MASKOS
   | 0xf0000000 -> `PF_MASKPROC
   | s -> invalid_format (Printf.sprintf "Unrecognised program_flags value %x" s)

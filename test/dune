@@ -26,6 +26,16 @@
  (action
   (run %{exe:test_macho_amd64.exe} --binary %{dep:hello_world})))
 
+(test
+ (name test_elf_amd64)
+ (libraries object integers alcotest cmdliner)
+ (build_if
+  (and
+   (= %{system} "linux")
+   (= %{architecture} "amd64")))
+ (action
+  (run %{exe:test_elf_amd64.exe} --binary %{dep:hello_world})))
+
 (rule
  (alias build-c)
  (deps hello_world.c)
