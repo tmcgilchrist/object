@@ -138,6 +138,10 @@ type program_flags =
   [ `PF_X  (** Segment is executable *)
   | `PF_W  (** Segment is writable *)
   | `PF_R  (** Segment is readable *)
+  | `PF_RX  (** Segment is readable and executable *)
+  | `PF_RW  (** Segment is readable and writable *)
+  | `PF_WX  (** Segment is writable and executable *)
+  | `PF_RWX  (** Segment is readable, writable and executable *)
   | `PF_MASKOS  (** OS-specific *)
   | `PF_MASKPROC  (** Processor-specific *) ]
 
