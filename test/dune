@@ -34,12 +34,7 @@
    (= %{system} "linux")
    (= %{architecture} "amd64")))
  (action
-  (run %{exe:test_elf_amd64.exe} --binary ~/projects/ocaml/hello_world)))
-
-; (executable
-;  (public_name test_elf_amd64)
-;  (name test_elf_amd64)
-;  (libraries object integers alcotest cmdliner))
+  (run %{exe:test_elf_amd64.exe} --binary %{dep:hello_world})))
 
 (rule
  (alias build-c)
