@@ -1,0 +1,3 @@
+(executables
+ (names objdump)
+ (libraries integers object unix cmdliner))
