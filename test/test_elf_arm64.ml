@@ -24,22 +24,24 @@ let test_elf_header_parsing hello_world_path =
     (Unsigned.UInt8.to_int magic3);
 
   (* Test 64-bit class *)
-  Alcotest.(check int)
-    "ELF class (64-bit)" 2
-    (Unsigned.UInt8.to_int header.e_ident.elf_class);
+  Alcotest.(check bool)
+    "ELF class (64-bit)" true
+    (match header.e_ident.elf_class with `ELFCLASS64 -> true | _ -> false);
 
   (* Test little-endian *)
-  Alcotest.(check int)
-    "ELF data encoding (little-endian)" 1
-    (Unsigned.UInt8.to_int header.e_ident.elf_data);
+  Alcotest.(check bool)
+    "ELF data encoding (little-endian)" true
+    (match header.e_ident.elf_data with `ELFDATA2LSB -> true | _ -> false);
 
   (* Test file type (position-independent executable) *)
-  Alcotest.(check int) "ELF type (PIE)" 3 (Unsigned.UInt16.to_int header.e_type);
+  Alcotest.(check bool)
+    "ELF type (PIE)" true
+    (match header.e_type with `ET_DYN -> true | _ -> false);
 
   (* Test machine type (AArch64) *)
-  Alcotest.(check int)
-    "ELF machine (AArch64)" 183
-    (Unsigned.UInt16.to_int header.e_machine);
+  Alcotest.(check bool)
+    "ELF machine (AArch64)" true
+    (match header.e_machine with `EM_AARCH64 -> true | _ -> false);
 
   (* Test entry point *)
   Alcotest.(check int64)
