@@ -2,18 +2,86 @@ open Types
 
 (** Linux ELF parser based on /usr/include/elf.h *)
 
+type elf_class =
+  [ `ELFCLASSNONE  (** Invalid class *)
+  | `ELFCLASS32  (** 32-bit objects *)
+  | `ELFCLASS64  (** 64-bit objects *) ]
+
+type elf_data =
+  [ `ELFDATANONE  (** Invalid data encoding *)
+  | `ELFDATA2LSB  (** 2's complement, little endian *)
+  | `ELFDATA2MSB  (** 2's complement, big endian *) ]
+
+type elf_osabi =
+  [ `ELFOSABI_NONE  (** UNIX System V ABI *)
+  | `ELFOSABI_SYSV  (** Alias for ELFOSABI_NONE *)
+  | `ELFOSABI_HPUX  (** HP-UX *)
+  | `ELFOSABI_NETBSD  (** NetBSD *)
+  | `ELFOSABI_GNU  (** Object uses GNU ELF extensions *)
+  | `ELFOSABI_LINUX  (** Compatibility alias for GNU *)
+  | `ELFOSABI_SOLARIS  (** Sun Solaris *)
+  | `ELFOSABI_AIX  (** IBM AIX *)
+  | `ELFOSABI_IRIX  (** SGI Irix *)
+  | `ELFOSABI_FREEBSD  (** FreeBSD *)
+  | `ELFOSABI_TRU64  (** Compaq TRU64 UNIX *)
+  | `ELFOSABI_MODESTO  (** Novell Modesto *)
+  | `ELFOSABI_OPENBSD  (** OpenBSD *)
+  | `ELFOSABI_ARM_AEABI  (** ARM EABI *)
+  | `ELFOSABI_ARM  (** ARM *)
+  | `ELFOSABI_STANDALONE  (** Standalone (embedded) application *)
+  | `ELFOSABI_UNKNOWN of int  (** Unknown OS ABI *) ]
+
+type elf_type =
+  [ `ET_NONE  (** No file type *)
+  | `ET_REL  (** Relocatable file *)
+  | `ET_EXEC  (** Executable file *)
+  | `ET_DYN  (** Shared object file *)
+  | `ET_CORE  (** Core file *)
+  | `ET_LOOS  (** OS-specific range start *)
+  | `ET_HIOS  (** OS-specific range end *)
+  | `ET_LOPROC  (** Processor-specific range start *)
+  | `ET_HIPROC  (** Processor-specific range end *)
+  | `ET_UNKNOWN of int  (** Unknown file type *) ]
+
+type elf_machine =
+  [ `EM_NONE  (** No machine *)
+  | `EM_M32  (** AT&T WE 32100 *)
+  | `EM_SPARC  (** SUN SPARC *)
+  | `EM_386  (** Intel 80386 *)
+  | `EM_68K  (** Motorola m68k family *)
+  | `EM_88K  (** Motorola m88k family *)
+  | `EM_860  (** Intel 80860 *)
+  | `EM_MIPS  (** MIPS R3000 big-endian *)
+  | `EM_S370  (** IBM System/370 *)
+  | `EM_MIPS_RS3_LE  (** MIPS R3000 little-endian *)
+  | `EM_PARISC  (** HPPA *)
+  | `EM_VPP500  (** Fujitsu VPP500 *)
+  | `EM_SPARC32PLUS  (** Sun's "v8plus" *)
+  | `EM_960  (** Intel 80960 *)
+  | `EM_PPC  (** PowerPC *)
+  | `EM_PPC64  (** PowerPC 64-bit *)
+  | `EM_S390  (** IBM S390 *)
+  | `EM_ARM  (** ARM *)
+  | `EM_SH  (** Hitachi SH *)
+  | `EM_SPARCV9  (** SPARC v9 64-bit *)
+  | `EM_IA_64  (** Intel Merced *)
+  | `EM_X86_64  (** AMD x86-64 architecture *)
+  | `EM_AARCH64  (** ARM AARCH64 *)
+  | `EM_RISCV (* RISC-V *)
+  | `EM_UNKNOWN of int  (** Unknown machine type *) ]
+
 type identification = {
-  elf_class : u8;
-  elf_data : u8;
+  elf_class : elf_class;
+  elf_data : elf_data;
   elf_version : u8;
-  elf_osabi : u8;
+  elf_osabi : elf_osabi;
   elf_abiversion : u8;
 }
 
 type header = {
   e_ident : identification; (* ELF "magic number" *)
-  e_type : u16; (* Executable, shared lib, relocatable, core. *)
-  e_machine : u16; (* Architecture, e.g., EM_X86_64 for x64 *)
+  e_type : elf_type; (* Executable, shared lib, relocatable, core. *)
+  e_machine : elf_machine; (* Architecture, e.g., EM_X86_64 for x64 *)
   e_version : u32; (* Version, must be 1 *)
   e_entry : u64; (* Entry point virtual address *)
   e_phoff : u64; (* Program header table file offset *)

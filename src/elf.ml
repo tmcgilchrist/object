@@ -1,17 +1,85 @@
 open Types
 
+type elf_class =
+  [ `ELFCLASSNONE (* Invalid class *)
+  | `ELFCLASS32 (* 32-bit objects *)
+  | `ELFCLASS64 (* 64-bit objects *) ]
+
+type elf_data =
+  [ `ELFDATANONE (* Invalid data encoding *)
+  | `ELFDATA2LSB (* 2's complement, little endian *)
+  | `ELFDATA2MSB (* 2's complement, big endian *) ]
+
+type elf_osabi =
+  [ `ELFOSABI_NONE (* UNIX System V ABI *)
+  | `ELFOSABI_SYSV (* Alias for ELFOSABI_NONE *)
+  | `ELFOSABI_HPUX (* HP-UX *)
+  | `ELFOSABI_NETBSD (* NetBSD *)
+  | `ELFOSABI_GNU (* Object uses GNU ELF extensions *)
+  | `ELFOSABI_LINUX (* Compatibility alias for GNU *)
+  | `ELFOSABI_SOLARIS (* Sun Solaris *)
+  | `ELFOSABI_AIX (* IBM AIX *)
+  | `ELFOSABI_IRIX (* SGI Irix *)
+  | `ELFOSABI_FREEBSD (* FreeBSD *)
+  | `ELFOSABI_TRU64 (* Compaq TRU64 UNIX *)
+  | `ELFOSABI_MODESTO (* Novell Modesto *)
+  | `ELFOSABI_OPENBSD (* OpenBSD *)
+  | `ELFOSABI_ARM_AEABI (* ARM EABI *)
+  | `ELFOSABI_ARM (* ARM *)
+  | `ELFOSABI_STANDALONE (* Standalone (embedded) application *)
+  | `ELFOSABI_UNKNOWN of int (* Unknown OS ABI *) ]
+
+type elf_type =
+  [ `ET_NONE (* No file type *)
+  | `ET_REL (* Relocatable file *)
+  | `ET_EXEC (* Executable file *)
+  | `ET_DYN (* Shared object file *)
+  | `ET_CORE (* Core file *)
+  | `ET_LOOS (* OS-specific range start *)
+  | `ET_HIOS (* OS-specific range end *)
+  | `ET_LOPROC (* Processor-specific range start *)
+  | `ET_HIPROC (* Processor-specific range end *)
+  | `ET_UNKNOWN of int (* Unknown file type *) ]
+
+type elf_machine =
+  [ `EM_NONE (* No machine *)
+  | `EM_M32 (* AT&T WE 32100 *)
+  | `EM_SPARC (* SUN SPARC *)
+  | `EM_386 (* Intel 80386 *)
+  | `EM_68K (* Motorola m68k family *)
+  | `EM_88K (* Motorola m88k family *)
+  | `EM_860 (* Intel 80860 *)
+  | `EM_MIPS (* MIPS R3000 big-endian *)
+  | `EM_S370 (* IBM System/370 *)
+  | `EM_MIPS_RS3_LE (* MIPS R3000 little-endian *)
+  | `EM_PARISC (* HPPA *)
+  | `EM_VPP500 (* Fujitsu VPP500 *)
+  | `EM_SPARC32PLUS (* Sun's "v8plus" *)
+  | `EM_960 (* Intel 80960 *)
+  | `EM_PPC (* PowerPC *)
+  | `EM_PPC64 (* PowerPC 64-bit *)
+  | `EM_S390 (* IBM S390 *)
+  | `EM_ARM (* ARM *)
+  | `EM_SH (* Hitachi SH *)
+  | `EM_SPARCV9 (* SPARC v9 64-bit *)
+  | `EM_IA_64 (* Intel Merced *)
+  | `EM_X86_64 (* AMD x86-64 architecture *)
+  | `EM_AARCH64 (* ARM AARCH64 *)
+  | `EM_RISCV (* RISC-V *)
+  | `EM_UNKNOWN of int (* Unknown machine type *) ]
+
 type identification = {
-  elf_class : u8;
-  elf_data : u8;
+  elf_class : elf_class;
+  elf_data : elf_data;
   elf_version : u8;
-  elf_osabi : u8;
+  elf_osabi : elf_osabi;
   elf_abiversion : u8;
 }
 
 type header = {
   e_ident : identification; (* ELF "magic number" *)
-  e_type : u16; (* Executable, shared lib, relocatable, core. *)
-  e_machine : u16; (* Architecture, e.g., EM_X86_64 for x64 *)
+  e_type : elf_type; (* Executable, shared lib, relocatable, core. *)
+  e_machine : elf_machine; (* Architecture, e.g., EM_X86_64 for x64 *)
   e_version : u32; (* Version, must be 1 *)
   e_entry : u64; (* Entry point virtual address *)
   e_phoff : u64; (* Program header table file offset *)
@@ -250,6 +318,79 @@ let program_flags x =
   | 0xf0000000 -> `PF_MASKPROC
   | s -> invalid_format (Printf.sprintf "Unrecognised program_flags value %x" s)
 
+(* Conversion functions for variant types *)
+let elf_class_of_u8 (x : u8) =
+  match Unsigned.UInt8.to_int x with
+  | 0 -> `ELFCLASSNONE
+  | 1 -> `ELFCLASS32
+  | 2 -> `ELFCLASS64
+  | n -> failwith (Printf.sprintf "Invalid ELF class: %d" n)
+
+let elf_data_of_u8 (x : u8) =
+  match Unsigned.UInt8.to_int x with
+  | 0 -> `ELFDATANONE
+  | 1 -> `ELFDATA2LSB
+  | 2 -> `ELFDATA2MSB
+  | n -> failwith (Printf.sprintf "Invalid ELF data encoding: %d" n)
+
+let elf_osabi_of_u8 (x : u8) =
+  match Unsigned.UInt8.to_int x with
+  | 0 -> `ELFOSABI_NONE
+  | 1 -> `ELFOSABI_HPUX
+  | 2 -> `ELFOSABI_NETBSD
+  | 3 -> `ELFOSABI_GNU
+  | 6 -> `ELFOSABI_SOLARIS
+  | 7 -> `ELFOSABI_AIX
+  | 8 -> `ELFOSABI_IRIX
+  | 9 -> `ELFOSABI_FREEBSD
+  | 10 -> `ELFOSABI_TRU64
+  | 11 -> `ELFOSABI_MODESTO
+  | 12 -> `ELFOSABI_OPENBSD
+  | 64 -> `ELFOSABI_ARM_AEABI
+  | 97 -> `ELFOSABI_ARM
+  | 255 -> `ELFOSABI_STANDALONE
+  | n -> `ELFOSABI_UNKNOWN n
+
+let elf_type_of_u16 (x : u16) =
+  match Unsigned.UInt16.to_int x with
+  | 0 -> `ET_NONE
+  | 1 -> `ET_REL
+  | 2 -> `ET_EXEC
+  | 3 -> `ET_DYN
+  | 4 -> `ET_CORE
+  | n when n >= 0xfe00 && n <= 0xfeff -> `ET_LOOS (* OS-specific range *)
+  | n when n >= 0xff00 && n <= 0xffff ->
+      `ET_LOPROC (* Processor-specific range *)
+  | n -> `ET_UNKNOWN n
+
+let elf_machine_of_u16 (x : u16) =
+  match Unsigned.UInt16.to_int x with
+  | 0 -> `EM_NONE
+  | 1 -> `EM_M32
+  | 2 -> `EM_SPARC
+  | 3 -> `EM_386
+  | 4 -> `EM_68K
+  | 5 -> `EM_88K
+  | 7 -> `EM_860
+  | 8 -> `EM_MIPS
+  | 9 -> `EM_S370
+  | 10 -> `EM_MIPS_RS3_LE
+  | 15 -> `EM_PARISC
+  | 17 -> `EM_VPP500
+  | 18 -> `EM_SPARC32PLUS
+  | 19 -> `EM_960
+  | 20 -> `EM_PPC
+  | 21 -> `EM_PPC64
+  | 22 -> `EM_S390
+  | 40 -> `EM_ARM
+  | 42 -> `EM_SH
+  | 43 -> `EM_SPARCV9
+  | 50 -> `EM_IA_64
+  | 62 -> `EM_X86_64
+  | 183 -> `EM_AARCH64
+  | 243 -> `EM_RISCV
+  | n -> `EM_UNKNOWN n
+
 let read_magic t =
   ensure t 4 "Magic number truncated";
   let { buffer; position } = t in
@@ -262,14 +403,12 @@ let read_magic t =
   if not valid then invalid_format "No ELF magic number";
   advance t 4
 
-let elfclass64 = Unsigned.UInt8.of_int 2
-
 let read_identification t =
   ensure t 12 "Identification truncated";
-  let elf_class = Read.u8 t in
-  let elf_data = Read.u8 t in
+  let elf_class_raw = Read.u8 t in
+  let elf_data_raw = Read.u8 t in
   let elf_version = Read.u8 t in
-  let elf_osabi = Read.u8 t in
+  let elf_osabi_raw = Read.u8 t in
   let elf_abiversion = Read.u8 t in
   let zero = Unsigned.UInt8.of_int 0 in
   if
@@ -282,15 +421,24 @@ let read_identification t =
       && Read.u8 t = zero
       && Read.u8 t = zero)
   then invalid_format "Incorrect padding after identification";
-  if elf_class != elfclass64 then
-    failwith "object only supports ELFCLASS64 (64-bit object) files";
+
+  let elf_class = elf_class_of_u8 elf_class_raw in
+  let elf_data = elf_data_of_u8 elf_data_raw in
+  let elf_osabi = elf_osabi_of_u8 elf_osabi_raw in
+
+  (match elf_class with
+  | `ELFCLASS64 -> () (* supported *)
+  | `ELFCLASS32 ->
+      failwith "object only supports ELFCLASS64 (64-bit object) files"
+  | `ELFCLASSNONE -> failwith "Invalid ELF class");
+
   { elf_class; elf_data; elf_version; elf_osabi; elf_abiversion }
 
 let read_header t e_ident =
   assert (t.position = 16);
   ensure t 48 "Header truncated";
-  let e_type = Read.u16 t in
-  let e_machine = Read.u16 t in
+  let e_type_raw = Read.u16 t in
+  let e_machine_raw = Read.u16 t in
   let e_version = Read.u32 t in
   let e_entry = Read.u64 t in
   let e_phoff = Read.u64 t in
@@ -302,7 +450,12 @@ let read_header t e_ident =
   let e_shentsize = Read.u16 t in
   let e_shnum = Read.u16 t in
   let e_shstrndx = Read.u16 t in
+
+  let e_type = elf_type_of_u16 e_type_raw in
+  let e_machine = elf_machine_of_u16 e_machine_raw in
+
   {
+    e_ident;
     e_type;
     e_machine;
     e_version;
@@ -316,7 +469,6 @@ let read_header t e_ident =
     e_shentsize;
     e_shnum;
     e_shstrndx;
-    e_ident;
   }
 
 let read_section header t n =

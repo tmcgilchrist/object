@@ -48,15 +48,16 @@ let macho_cpu_type_to_arch = function
   | `Unknown n -> `Unknown n
 
 (** Convert ELF machine type to generic arch *)
-let elf_machine_to_arch (machine : Types.u16) =
-  match Unsigned.UInt16.to_int machine with
-  | 3 -> `X86 (* EM_386 *)
-  | 62 -> `X86_64 (* EM_X86_64 *)
-  | 40 -> `ARM (* EM_ARM *)
-  | 183 -> `ARM64 (* EM_AARCH64 *)
-  | 20 -> `POWERPC (* EM_PPC *)
-  | 21 -> `POWERPC64 (* EM_PPC64 *)
-  | n -> `Unknown n
+let elf_machine_to_arch (machine : Elf.elf_machine) =
+  match machine with
+  | `EM_386 -> `X86
+  | `EM_X86_64 -> `X86_64
+  | `EM_ARM -> `ARM
+  | `EM_AARCH64 -> `ARM64
+  | `EM_PPC -> `POWERPC
+  | `EM_PPC64 -> `POWERPC64
+  | `EM_UNKNOWN n -> `Unknown n
+  | _ -> `Unknown 0 (* For other known but unmapped architectures *)
 
 (** Convert Mach-O section to generic section *)
 let macho_section_to_generic (sec : Macho.section) : section =
@@ -159,10 +160,15 @@ let parse_elf (buf : Buffer.t) : t =
       format = ELF;
       architecture = elf_machine_to_arch elf_header.e_machine;
       entry_point = Some elf_header.e_entry;
-      is_executable = Unsigned.UInt16.to_int elf_header.e_type = 2;
-      (* ET_EXEC = 2 *)
-      is_64bit = Unsigned.UInt8.to_int elf_header.e_ident.elf_class = 2;
-      (* ELFCLASS64 = 2 *)
+      is_executable =
+        (match elf_header.e_type with
+        | `ET_EXEC | `ET_DYN ->
+            true (* Executable or position-independent executable *)
+        | _ -> false);
+      is_64bit =
+        (match elf_header.e_ident.elf_class with
+        | `ELFCLASS64 -> true
+        | _ -> false);
     }
   in
 
