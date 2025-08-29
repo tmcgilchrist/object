@@ -12,8 +12,8 @@ let test_macho_header hello_world_path =
 
   (* Test CPU type (should be ARM64) *)
   Alcotest.(check bool)
-    "is ARM64" true
-    (match header.cpu_type with `AMD64 -> true | _ -> false);
+    "is AMD64" true
+    (match header.cpu_type with `X86_64 -> true | _ -> false);
 
   (* Test file type (should be executable) *)
   Alcotest.(check bool)
