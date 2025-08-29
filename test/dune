@@ -1,0 +1,34 @@
+(test
+ (name test_object)
+ (libraries object integers alcotest)
+ (action
+  (run %{exe:test_object.exe})))
+
+(test
+ (name test_macho_arm64)
+ (deps hello_world)
+ (build_if
+  (and
+   (= %{system} "macosx")
+   (= %{architecture} "arm64")))
+ (libraries object integers alcotest cmdliner)
+ (action
+  (run %{exe:test_macho_arm64.exe} --binary %{dep:hello_world})))
+
+(test
+ (name test_macho_amd64)
+ (deps hello_world)
+ (build_if
+  (and
+   (= %{system} "macosx")
+   (= %{architecture} "amd64")))
+ (libraries object integers alcotest cmdliner)
+ (action
+  (run %{exe:test_macho_amd64.exe} --binary %{dep:hello_world})))
+
+(rule
+ (alias build-c)
+ (deps hello_world.c)
+ (target hello_world)
+ (action
+  (run cc %{deps} -o %{target})))

@@ -34,7 +34,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          opam install . --deps-only --with-test
+          opam install . --deps-only --with-test --with-dev-setup
 
       - name: Build
         run: |
@@ -43,3 +43,7 @@ jobs:
       - name: Tests
         run: |
           opam exec -- dune build @runtest
+
+      - name: Format
+        run: |
+          opam exec -- dune build @fmt
