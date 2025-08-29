@@ -7,7 +7,8 @@
 (package
   (name object)
   (depends
-    (ocaml (>= 4.08))
+   (ocaml (>= 4.08))
+    integers
     (cmdliner :with-test))
   (synopsis "A unified interface for reading and writing object file formats")
   (description "A unified interface for reading and writing object file formats"))
