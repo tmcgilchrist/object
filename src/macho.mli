@@ -1,12 +1,26 @@
-open Types
-
 (** MacOS Mach-O parser based on /usr/include/mach-o/* headers *)
 
-type magic = MAGIC32 | MAGIC64 | CIGAM32 | CIGAM64
+open Types
+
+type magic =
+  | MAGIC32
+  | MAGIC64
+  | CIGAM32
+  | CIGAM64
+      (** Magic numbers identifying the endianness and architecture of Mach-O
+          files.
+          - [MAGIC32]: 32-bit Mach-O file, native endianness
+          - [MAGIC64]: 64-bit Mach-O file, native endianness
+          - [CIGAM32]: 32-bit Mach-O file, swapped endianness
+          - [CIGAM64]: 64-bit Mach-O file, swapped endianness *)
 
 val string_of_magic : magic -> string
+(** [string_of_magic magic] returns a human-readable string representation of
+    the magic number for debugging and display purposes. *)
 
 type unknown = [ `Unknown of int ]
+(** Represents unknown or unrecognized values with their raw integer
+    representation. *)
 
 type cpu_type =
   [ `X86
@@ -17,6 +31,8 @@ type cpu_type =
   | `POWERPC
   | `POWERPC64
   | unknown ]
+(** CPU architectures supported by Mach-O binaries. Includes Intel x86/x64, ARM
+    variants, PowerPC architectures, and a catch-all for unknown types. *)
 
 type cpu_subtype =
   [ `Intel
@@ -71,6 +87,9 @@ type cpu_subtype =
   | `ARM_V7K
   | `ARM_V8
   | unknown ]
+(** CPU subtypes providing more specific processor identification within a CPU
+    family. Includes various Intel processors, PowerPC variants, ARM versions,
+    and unknown types. *)
 
 type file_type =
   [ `OBJECT
@@ -88,6 +107,9 @@ type file_type =
   | `GPU_EXECUTE
   | `GPU_DYLIB
   | unknown ]
+(** Types of Mach-O files, from relocatable object files to executables, dynamic
+    libraries, bundles, and specialized types like GPU executables and file
+    sets. *)
 
 type header_flag =
   [ (*  the object file has no undefined references *)
@@ -132,6 +154,9 @@ type header_flag =
     `NO_REEXPORTED_DYLIBS
   | (*  When this bit is set, the OS will load the main executable at a random address.  Only used in `EXECUTE filetypes. *)
     `PIE ]
+(** Flags in the Mach-O header indicating various linking and loading behaviors,
+    such as undefined references, dynamic linking, prebinding, and security
+    features. *)
 
 type header = {
   magic : magic;
@@ -140,6 +165,9 @@ type header = {
   file_type : file_type;
   flags : header_flag list;
 }
+(** The Mach-O header containing essential information about the binary
+    including endianness, architecture, file type, and various flags controlling
+    linking behavior. *)
 
 type reloc_type =
   [ `GENERIC_RELOC_VANILLA
@@ -173,122 +201,127 @@ type reloc_type =
   | `PPC_RELOC_JBSR
   | `PPC_RELOC_LO14_SECTDIFF
   | unknown ]
+(** Relocation types for different architectures (generic, x86-64, PowerPC)
+    indicating how addresses should be modified during linking and loading. *)
 
 type relocation_info = {
-  (* offset from start of section to place to be relocated *)
   ri_address : int;
-  (* index into symbol or section table *)
-  ri_symbolnum : u32;
-  (* indicates if the item to be relocated is part of an instruction containing PC-relative addressing *)
+      (** Offset from start of section to place to be relocated *)
+  ri_symbolnum : u32;  (** Index into symbol or section table *)
   ri_pcrel : bool;
-  (* length of item containing address to be relocated (literal form (4) instead of power of two (2)) *)
+      (** Indicates if the item to be relocated is part of an instruction
+          containing PC-relative addressing *)
   ri_length : u32;
-  (* indicates whether symbolnum is an index into the symbol table (True) or section table (False) *)
+      (** Length of item containing address to be relocated (literal form (4)
+          instead of power of two (2)) *)
   ri_extern : bool;
-  (* relocation type *)
-  ri_type : reloc_type;
+      (** Indicates whether symbolnum is an index into the symbol table (true)
+          or section table (false) *)
+  ri_type : reloc_type;  (** Relocation type *)
 }
+(** Information needed to relocate addresses during linking. Contains the
+    location to be relocated, the symbol or section it references, and how the
+    relocation should be performed. *)
 
 type scattered_relocation_info = {
   rs_pcrel : bool;
-      (*  indicates if the item to be relocated is part of an instruction containing PC-relative addressing *)
+      (** Indicates if the item to be relocated is part of an instruction
+          containing PC-relative addressing *)
   rs_length : u32;
-      (*  length of item containing address to be relocated (literal form (4) instead of power of two (2)) *)
-  rs_type : reloc_type; (*  relocation type *)
-  rs_address : u32; (*  offset from start of section to place to be relocated *)
+      (** Length of item containing address to be relocated (literal form (4)
+          instead of power of two (2)) *)
+  rs_type : reloc_type;  (** Relocation type *)
+  rs_address : u32;
+      (** Offset from start of section to place to be relocated *)
   rs_value : s32;
-      (*  address of the relocatable expression for the item in the file that needs to be updated if the address is changed *)
+      (** Address of the relocatable expression for the item in the file that
+          needs to be updated if the address is changed *)
 }
+(** Scattered relocation information used when the relocation cannot be
+    described by a simple symbol or section reference. Contains the actual
+    address value and relocation details. *)
 
 type relocation =
   [ `Relocation_info of relocation_info
   | `Scattered_relocation_info of scattered_relocation_info ]
+(** Union type representing either a standard or scattered relocation entry.
+    Standard relocations reference symbols or sections by index, while scattered
+    relocations contain literal addresses. *)
 
 type sec_type =
-  [ (* regular section *)
-    `S_REGULAR
-  | (* zero fill on demand section *)
-    `S_ZEROFILL
-  | (* section with only literal C strings *)
-    `S_CSTRING_LITERALS
-  | (* section with only 4 byte literals *)
-    `S_4BYTE_LITERALS
-  | (* section with only 8 byte literals *)
-    `S_8BYTE_LITERALS
-  | (* section with only pointers to literals *)
-    `S_LITERAL_POINTERS
-  | (* section with only non-lazy symbol pointers *)
-    `S_NON_LAZY_SYMBOL_POINTERS
-  | (* section with only lazy symbol pointers *)
-    `S_LAZY_SYMBOL_POINTERS
-  | (* section with only symbol stubs, bte size of stub in the reserved2 field *)
-    `S_SYMBOL_STUBS
-  | (* section with only function pointers for initialization *)
-    `S_MOD_INIT_FUNC_POINTERS
-  | (* section with only function pointers for termination *)
-    `S_MOD_TERM_FUNC_POINTERS
-  | (* section contains symbols that are to be coalesced *)
-    `S_COALESCED
-  | (* zero fill on demand section (that can be larger than 4 gigabytes) *)
-    `S_GB_ZEROFILL
-  | (* section with only pairs of function pointers for interposing *)
-    `S_INTERPOSING
-  | (* section with only 16 byte literals *)
-    `S_16BYTE_LITERALS
-  | (* section contains DTrace Object Format *)
-    `S_DTRACE_DOF
-  | (* section with only lazy symbol pointers to lazy loaded dylibs *)
-    `S_LAZY_DYLIB_SYMBOL_POINTERS
+  [ `S_REGULAR  (** Regular section *)
+  | `S_ZEROFILL  (** Zero fill on demand section *)
+  | `S_CSTRING_LITERALS  (** Section with only literal C strings *)
+  | `S_4BYTE_LITERALS  (** Section with only 4 byte literals *)
+  | `S_8BYTE_LITERALS  (** Section with only 8 byte literals *)
+  | `S_LITERAL_POINTERS  (** Section with only pointers to literals *)
+  | `S_NON_LAZY_SYMBOL_POINTERS
+    (** Section with only non-lazy symbol pointers *)
+  | `S_LAZY_SYMBOL_POINTERS  (** Section with only lazy symbol pointers *)
+  | `S_SYMBOL_STUBS
+    (** Section with only symbol stubs, byte size of stub in the reserved2 field
+    *)
+  | `S_MOD_INIT_FUNC_POINTERS
+    (** Section with only function pointers for initialization *)
+  | `S_MOD_TERM_FUNC_POINTERS
+    (** Section with only function pointers for termination *)
+  | `S_COALESCED  (** Section contains symbols that are to be coalesced *)
+  | `S_GB_ZEROFILL
+    (** Zero fill on demand section (that can be larger than 4 gigabytes) *)
+  | `S_INTERPOSING
+    (** Section with only pairs of function pointers for interposing *)
+  | `S_16BYTE_LITERALS  (** Section with only 16 byte literals *)
+  | `S_DTRACE_DOF  (** Section contains DTrace Object Format *)
+  | `S_LAZY_DYLIB_SYMBOL_POINTERS
+    (** Section with only lazy symbol pointers to lazy loaded dylibs *)
   | unknown ]
+(** Section types indicating the content and purpose of a section within a
+    segment. Each type defines how the section data should be interpreted and
+    used by the linker and loader. *)
 
 type sec_user_attr =
-  [ (* section contains only true machine instructions *)
-    `PURE_INSTRUCTIONS
-  | (* section contains coalesced symbols that are not to be in a ranlib table of contents *)
-    `NO_TOC
-  | (* ok to strip static symbols in this section in files with the MH_DYLDLINK flag *)
-    `STRIP_STATIC_SYMS
-  | (* no dead stripping *)
-    `NO_DEAD_STRIP
-  | (* blocks are live if they reference live blocks *)
-    `LIVE_SUPPORT
-  | (* used with i386 code stubs written on by dyld *)
-    `SELF_MODIFYING_CODE
-  | (* a debug section *)
-    `DEBUG ]
+  [ `PURE_INSTRUCTIONS  (** Section contains only true machine instructions *)
+  | `NO_TOC
+    (** Section contains coalesced symbols that are not to be in a ranlib table
+        of contents *)
+  | `STRIP_STATIC_SYMS
+    (** OK to strip static symbols in this section in files with the MH_DYLDLINK
+        flag *)
+  | `NO_DEAD_STRIP  (** No dead stripping *)
+  | `LIVE_SUPPORT  (** Blocks are live if they reference live blocks *)
+  | `SELF_MODIFYING_CODE  (** Used with i386 code stubs written on by dyld *)
+  | `DEBUG  (** A debug section *) ]
+(** User-defined section attributes controlling how sections are treated during
+    linking and optimization processes. *)
 
 type sec_sys_attr =
-  [ (* section contains soem machine instructions *)
-    `SOME_INSTRUCTIONS
-  | (* section has external relocation entries *)
-    `EXT_RELOC
-  | (* section has local relocation entries *)
-    `LOC_RELOC ]
+  [ `SOME_INSTRUCTIONS  (** Section contains some machine instructions *)
+  | `EXT_RELOC  (** Section has external relocation entries *)
+  | `LOC_RELOC  (** Section has local relocation entries *) ]
+(** System-defined section attributes indicating relocation and instruction
+    content. *)
 
 type section = {
-  (* name of section *)
-  sec_sectname : string;
-  (* name of segment that should own this section *)
-  sec_segname : string;
-  (* virtual memory address for section *)
-  sec_addr : u64;
-  (* size of section *)
-  sec_size : u64;
-  (* file offset of section *)
-  sec_offset : u32;
-  (* alignment required by section (literal form, not power of two, e.g. 8 not 3) *)
+  sec_sectname : string;  (** Name of section *)
+  sec_segname : string;  (** Name of segment that should own this section *)
+  sec_addr : u64;  (** Virtual memory address for section *)
+  sec_size : u64;  (** Size of section *)
+  sec_offset : u32;  (** File offset of section *)
   sec_align : int;
-  (* relocations for this section *)
-  sec_relocs : relocation array;
-  (* type of section *)
-  sec_type : sec_type;
-  (* user attributes of section *)
-  sec_user_attrs : sec_user_attr list;
-  (* system attibutes of section *)
-  sec_sys_attrs : sec_sys_attr list;
+      (** Alignment required by section (literal form, not power of two, e.g. 8
+          not 3) *)
+  sec_relocs : relocation array;  (** Relocations for this section *)
+  sec_type : sec_type;  (** Type of section *)
+  sec_user_attrs : sec_user_attr list;  (** User attributes of section *)
+  sec_sys_attrs : sec_sys_attr list;  (** System attributes of section *)
 }
+(** A section within a segment, containing code or data with specific attributes
+    and relocations. Sections are the finest granularity of organization within
+    Mach-O files. *)
 
 type vm_prot = [ `READ | `WRITE | `EXECUTE ]
+(** Virtual memory protection flags controlling access permissions for segments
+    and sections. *)
 
 type seg_flag =
   [ `HIGHVM
@@ -296,27 +329,23 @@ type seg_flag =
   | `NORELOC
     (* This segment has nothing that was relocated in it and nothing relocated to it, that is it may be safely replaced without relocation. *)
   ]
+(** Segment flags controlling special handling of segment contents and
+    relocations. *)
 
 type segment = {
-  (* segment name *)
-  seg_segname : string;
-  (* virtual address where the segment is loaded *)
-  seg_vmaddr : u64;
-  (* size of segment at runtime *)
-  seg_vmsize : u64;
-  (* file offset of the segment *)
-  seg_fileoff : u64;
-  (* size of segment in file *)
-  seg_filesize : u64;
-  (* maximum virtual memory protection *)
-  seg_maxprot : vm_prot list;
-  (* initial virtual memory protection *)
-  seg_initprot : vm_prot list;
-  (* segment flags *)
-  seg_flags : seg_flag list;
-  (* sections owned by this segment *)
-  seg_sections : section array;
+  seg_segname : string;  (** Segment name *)
+  seg_vmaddr : u64;  (** Virtual address where the segment is loaded *)
+  seg_vmsize : u64;  (** Size of segment at runtime *)
+  seg_fileoff : u64;  (** File offset of the segment *)
+  seg_filesize : u64;  (** Size of segment in file *)
+  seg_maxprot : vm_prot list;  (** Maximum virtual memory protection *)
+  seg_initprot : vm_prot list;  (** Initial virtual memory protection *)
+  seg_flags : seg_flag list;  (** Segment flags *)
+  seg_sections : section array;  (** Sections owned by this segment *)
 }
+(** A segment containing one or more sections, representing a contiguous range
+    of virtual memory that is mapped from the file during loading. Segments
+    define memory protection and layout. *)
 
 type sym_type =
   [ (* undefined symbol, n_sect is 0 *)
@@ -390,6 +419,9 @@ type sym_type =
   | (* stab global pascal symbol: name,,0,subtype,line *)
     `PC
   | unknown ]
+(** Symbol types including regular symbols (UNDF, ABS, SECT) and STAB debug
+    symbols. STAB symbols provide debugging information like source file names,
+    line numbers, and local variable information used by debuggers. *)
 
 type reference_flag =
   [ (* reference to an external non-lazy symbol *)
@@ -413,75 +445,92 @@ type reference_flag =
   | (* for two-level mach-o objects, specifies the index of the library in which this symbol is defined. zero specifies current image. *)
     `LIBRARY_ORDINAL of u16
   | unknown ]
+(** Reference flags indicating how symbols are bound and resolved during
+    linking. Controls symbol visibility, weak binding, and library ordinals for
+    two-level namespaces. *)
 
 type symbol = {
-  (* symbol name *)
-  sym_name : string;
-  (* symbol type *)
-  sym_type : sym_type;
-  (* true if limited global scope *)
-  sym_pext : bool;
-  (* true if external symbol *)
-  sym_ext : bool;
-  (* section index where the symbol can be found *)
-  sym_sect : u8;
-  (* for stab entries, Left Word16 is the uninterpreted flags field, otherwise Right [REFERENCE_FLAG] are the symbol flags *)
+  sym_name : string;  (** Symbol name *)
+  sym_type : sym_type;  (** Symbol type *)
+  sym_pext : bool;  (** True if limited global scope *)
+  sym_ext : bool;  (** True if external symbol *)
+  sym_sect : u8;  (** Section index where the symbol can be found *)
   sym_flags : [ `Uninterpreted of u16 | `Flags of reference_flag list ];
-  (* symbol value, 32-bit symbol values are promoted to 64-bit for simpliciy *)
+      (** For stab entries, uninterpreted flags field; otherwise reference flags
+      *)
   sym_value : u64;
+      (** Symbol value, 32-bit symbol values are promoted to 64-bit for
+          simplicity *)
 }
+(** A symbol table entry representing a named location in code or data. Symbols
+    can be functions, variables, or debugging information, and may reference
+    external libraries. *)
 
 type dylib_module = {
-  (*  module name string table offset *)
-  dylib_module_name_offset : u32;
-  (*  (initial, count) pair of symbol table indices for externally defined symbols *)
+  dylib_module_name_offset : u32;  (** Module name string table offset *)
   dylib_ext_def_sym : u32 * u32;
-  (*  (initial, count) pair of symbol table indices for referenced symbols *)
+      (** (initial, count) pair of symbol table indices for externally defined
+          symbols *)
   dylib_ref_sym : u32 * u32;
-  (*  (initial, count) pair of symbol table indices for local symbols *)
+      (** (initial, count) pair of symbol table indices for referenced symbols
+      *)
   dylib_local_sym : u32 * u32;
-  (*  (initial, count) pair of symbol table indices for externally referenced symbols *)
+      (** (initial, count) pair of symbol table indices for local symbols *)
   dylib_ext_rel : u32 * u32;
-  (*  (initial, count) pair of symbol table indices for the index of the module init section and the number of init pointers *)
+      (** (initial, count) pair of symbol table indices for externally
+          referenced symbols *)
   dylib_init : u32 * u32;
-  (*  (initial, count) pair of symbol table indices for the index of the module term section and the number of term pointers *)
+      (** (initial, count) pair of symbol table indices for the index of the
+          module init section and the number of init pointers *)
   dylib_term : u32 * u32;
-  (*  statically linked address of the start of the data for this module in the __module_info section in the __OBJC segment *)
+      (** (initial, count) pair of symbol table indices for the index of the
+          module term section and the number of term pointers *)
   dylib_objc_module_info_addr : u32;
-  (*  number of bytes of data for this module that are used in the __module_info section in the __OBJC segment *)
+      (** Statically linked address of the start of the data for this module in
+          the __module_info section in the __OBJC segment *)
   dylib_objc_module_info_size : u64;
+      (** Number of bytes of data for this module that are used in the
+          __module_info section in the __OBJC segment *)
 }
+(** Module information for dynamic libraries, containing indices into various
+    symbol tables and initialization/termination routines. *)
 
-type toc_entry = { symbol_index : u32; module_index : u32 }
+type toc_entry = {
+  symbol_index : u32;  (** Index into symbol table *)
+  module_index : u32;  (** Index into module table *)
+}
+(** Table of contents entry mapping symbols to their defining modules. *)
 
 type dynamic_symbol_table = {
-  (*  symbol table index and count for local symbols *)
-  localSyms : u32 * u32;
-  (*  symbol table index and count for externally defined symbols *)
+  localSyms : u32 * u32;  (** Symbol table index and count for local symbols *)
   extDefSyms : u32 * u32;
-  (*  symbol table index and count for undefined symbols *)
+      (** Symbol table index and count for externally defined symbols *)
   undefSyms : u32 * u32;
-  (*  list of symbol index and module index pairs *)
+      (** Symbol table index and count for undefined symbols *)
   toc_entries : toc_entry array;
-  (*  modules *)
-  modules : dylib_module array;
-  (*  list of external reference symbol indices *)
-  extRefSyms : u32 array;
-  (*  list of indirect symbol indices *)
-  indirectSyms : u32 array;
-  (*  external locations *)
-  extRels : relocation array;
-  (*  local relocations *)
-  locRels : relocation array;
+      (** List of symbol index and module index pairs *)
+  modules : dylib_module array;  (** Modules *)
+  extRefSyms : u32 array;  (** List of external reference symbol indices *)
+  indirectSyms : u32 array;  (** List of indirect symbol indices *)
+  extRels : relocation array;  (** External relocations *)
+  locRels : relocation array;  (** Local relocations *)
 }
+(** Dynamic symbol table containing information needed for dynamic linking,
+    including symbol organization and relocation data. *)
 
 type dylib = {
-  dylib_name : string;
-  dylib_timestamp : u32;
-  dylib_current_version : u32;
+  dylib_name : string;  (** Name of the dynamic library *)
+  dylib_timestamp : u32;  (** Time when the library was built *)
+  dylib_current_version : u32;  (** Current version of the library *)
   dylib_compatibility_version : u32;
+      (** Oldest version this library is compatible with *)
 }
+(** Dynamic library information including name and version details. *)
 
+(** Load commands instruct the dynamic linker how to set up the process from the
+    Mach-O file. Commands specify segments to load, libraries to link, symbols
+    to resolve, and other setup tasks. Each command contains specific data
+    relevant to its operation. *)
 type command =
   (* segment of this file to be mapped *)
   | LC_SEGMENT_32 of segment lazy_t
