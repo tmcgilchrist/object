@@ -11,11 +11,11 @@ let string_of_magic = function
 type unknown = [ `Unknown of int ]
 
 type cpu_type =
-  [ `X86
-  | `X86_64
-  | `ARM
-  | `ARM64
-  | `ARM64_32
+  [ `X86 (* ABI for 32-bit hardware *)
+  | `X86_64 (* ABI for 64-bit hardware *)
+  | `ARM (* ABI for 32-bit hardware *)
+  | `ARM64 (* ABI for 64-bit hardware *)
+  | `ARM64_32 (* ABI for 64-bit hardware with 32-bit types; LP32 *)
   | `POWERPC
   | `POWERPC64
   | unknown ]
@@ -636,9 +636,8 @@ let cpu_type = function
   | 0x00000007 -> `X86
   | 0x01000007 -> `X86_64
   | 0x0000000c -> `ARM
-  | 0x0100000c -> `ARM64 (* ABI for 64-bit hardware *)
-  | 0x0200000c ->
-      `ARM64_32 (* ABI for 64-bit hardware with 32-bit types; LP32 *)
+  | 0x0100000c -> `ARM64
+  | 0x0200000c -> `ARM64_32
   | 0x00000012 -> `POWERPC
   | 0x01000012 -> `POWERPC64
   | n -> `Unknown n
@@ -1247,12 +1246,6 @@ let read_symbol_table header buf t =
   let nsyms = Read.u32 t in
   let stroff = Read.u32 t in
   let strsize = Read.u32 t in
-  Printf.eprintf "symoff: %d, nsyms: %d, stroff: %d, strsize: %d\n"
-    (Unsigned.UInt32.to_int symoff)
-    (Unsigned.UInt32.to_int nsyms)
-    (Unsigned.UInt32.to_int stroff)
-    (Unsigned.UInt32.to_int strsize);
-  Printf.eprintf "buffer size: %d\n%!" (Bigarray.Array1.dim buf);
   let strsect =
     sub
       (cursor buf ~at:(Unsigned.UInt32.to_int stroff))
