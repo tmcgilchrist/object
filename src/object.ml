@@ -11,3 +11,6 @@ module Elf = Elf
 
 module Format = Object_format
 (** Generic abstraction over ELF and Mach-O file formats *)
+
+module Types = Types
+(** Common type definitions *)

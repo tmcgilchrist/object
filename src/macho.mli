@@ -582,6 +582,37 @@ type command =
   | LC_SEGMENT_SPLIT_INFO of u32 * u32
   | LC_UNHANDLED of int * Buffer.t
 
+val read_symbol_table :
+  header -> Buffer.t -> Buffer.cursor -> symbol array * Buffer.t
+(** [read_symbol_table header buffer cursor] reads the symbol table from a
+    Mach-O LC_SYMTAB load command. Returns an array of symbols and the string
+    table buffer. The cursor should be positioned at the start of the symbol
+    table command data (after the standard load command header).
+
+    @param header The Mach-O header containing architecture information
+    @param buffer The complete Mach-O file buffer
+    @param cursor Buffer cursor positioned at symbol table command data
+    @return Tuple of (symbol array, string table buffer) *)
+
+val read_load_command : header -> Buffer.t -> Buffer.cursor -> command
+(** [read_load_command header buffer cursor] reads a single load command from
+    the Mach-O file. The cursor should be positioned at the start of a load
+    command (at the cmd field).
+
+    @param header The Mach-O header containing architecture information
+    @param buffer The complete Mach-O file buffer
+    @param cursor Buffer cursor positioned at load command start
+    @return The parsed load command structure *)
+
+val read_load_commands : header -> Buffer.t -> Buffer.cursor -> command list
+(** [read_load_commands header buffer cursor] reads all remaining load commands
+    from the current cursor position until the end of the load commands region.
+
+    @param header The Mach-O header containing architecture information
+    @param buffer The complete Mach-O file buffer
+    @param cursor Buffer cursor positioned at start of load commands
+    @return List of all parsed load command structures *)
+
 val read : Buffer.t -> header * command list
 (** [read] decodes the [header] and load [command] list, from a [Buffer.t]
     pointing to a MachO image *)

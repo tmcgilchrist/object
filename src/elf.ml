@@ -563,3 +563,163 @@ let read_section_contents buf sections section_name =
   match find_section sections section_name with
   | None -> None
   | Some section -> Some (section_body buf section)
+
+type symbol_binding =
+  [ `STB_LOCAL
+  | `STB_GLOBAL
+  | `STB_WEAK
+  | `STB_LOOS
+  | `STB_HIOS
+  | `STB_LOPROC
+  | `STB_HIPROC
+  | `STB_UNKNOWN of int ]
+
+type symbol_type =
+  [ `STT_NOTYPE
+  | `STT_OBJECT
+  | `STT_FUNC
+  | `STT_SECTION
+  | `STT_FILE
+  | `STT_COMMON
+  | `STT_TLS
+  | `STT_LOOS
+  | `STT_HIOS
+  | `STT_LOPROC
+  | `STT_HIPROC
+  | `STT_UNKNOWN of int ]
+
+type symbol_visibility =
+  [ `STV_DEFAULT
+  | `STV_INTERNAL
+  | `STV_HIDDEN
+  | `STV_PROTECTED
+  | `STV_UNKNOWN of int ]
+
+type symbol = {
+  st_name : u32;
+  st_name_str : string;
+  st_info : u8;
+  st_other : u8;
+  st_shndx : u16;
+  st_value : u64;
+  st_size : u64;
+  st_binding : symbol_binding;
+  st_type : symbol_type;
+  st_visibility : symbol_visibility;
+}
+
+let symbol_binding info =
+  let binding = Unsigned.UInt8.to_int info lsr 4 in
+  match binding with
+  | 0 -> `STB_LOCAL
+  | 1 -> `STB_GLOBAL
+  | 2 -> `STB_WEAK
+  | 10 -> `STB_LOOS
+  | 12 -> `STB_HIOS
+  | 13 -> `STB_LOPROC
+  | 15 -> `STB_HIPROC
+  | n -> `STB_UNKNOWN n
+
+let symbol_type info =
+  let sym_type = Unsigned.UInt8.to_int info land 0xf in
+  match sym_type with
+  | 0 -> `STT_NOTYPE
+  | 1 -> `STT_OBJECT
+  | 2 -> `STT_FUNC
+  | 3 -> `STT_SECTION
+  | 4 -> `STT_FILE
+  | 5 -> `STT_COMMON
+  | 6 -> `STT_TLS
+  | 10 -> `STT_LOOS
+  | 12 -> `STT_HIOS
+  | 13 -> `STT_LOPROC
+  | 15 -> `STT_HIPROC
+  | n -> `STT_UNKNOWN n
+
+let symbol_visibility other =
+  let visibility = Unsigned.UInt8.to_int other land 0x3 in
+  match visibility with
+  | 0 -> `STV_DEFAULT
+  | 1 -> `STV_INTERNAL
+  | 2 -> `STV_HIDDEN
+  | 3 -> `STV_PROTECTED
+  | n -> `STV_UNKNOWN n
+
+let read_symbol_name strtab_section buffer st_name =
+  let name_offset = Unsigned.UInt32.to_int st_name in
+  if name_offset = 0 then ""
+  else
+    let strtab_offset = Unsigned.UInt64.to_int strtab_section.sh_offset in
+    let strtab_size = Unsigned.UInt64.to_int strtab_section.sh_size in
+    if name_offset >= strtab_size then ""
+    else (
+      seek buffer (strtab_offset + name_offset);
+      match Read.zero_string buffer ~maxlen:(strtab_size - name_offset) () with
+      | None -> ""
+      | Some s -> s)
+
+let read_symbol buffer strtab_section _n =
+  let st_name = Read.u32 buffer in
+  let st_info = Read.u8 buffer in
+  let st_other = Read.u8 buffer in
+  let st_shndx = Read.u16 buffer in
+  let st_value = Read.u64 buffer in
+  let st_size = Read.u64 buffer in
+  let st_name_str = read_symbol_name strtab_section buffer st_name in
+  let st_binding = symbol_binding st_info in
+  let st_type = symbol_type st_info in
+  let st_visibility = symbol_visibility st_other in
+  {
+    st_name;
+    st_name_str;
+    st_info;
+    st_other;
+    st_shndx;
+    st_value;
+    st_size;
+    st_binding;
+    st_type;
+    st_visibility;
+  }
+
+let read_symbol_table ?symtab_name buffer _header sections =
+  (* Determine which symbol table to use *)
+  let sym_section, str_section =
+    match symtab_name with
+    | Some name -> (
+        (* Use the explicitly specified symbol table *)
+        let sym_section = find_section sections name in
+        let str_section =
+          match name with
+          | ".dynsym" -> find_section sections ".dynstr"
+          | _ -> find_section sections ".strtab"
+        in
+        match (sym_section, str_section) with
+        | Some sym, Some str -> (sym, str)
+        | _ ->
+            failwith
+              ("Symbol table '" ^ name
+             ^ "' or corresponding string table not found"))
+    | None -> (
+        (* Default behavior: Try .symtab first, then .dynsym as fallback *)
+        let symtab_section = find_section sections ".symtab" in
+        let strtab_section = find_section sections ".strtab" in
+        let dynsym_section = find_section sections ".dynsym" in
+        let dynstr_section = find_section sections ".dynstr" in
+
+        match (symtab_section, strtab_section) with
+        | Some symtab, Some strtab -> (symtab, strtab)
+        | _ -> (
+            (* Fallback to dynamic symbols *)
+            match (dynsym_section, dynstr_section) with
+            | Some dynsym, Some dynstr -> (dynsym, dynstr)
+            | _ -> failwith "No symbol table found"))
+  in
+
+  let entsize = Unsigned.UInt64.to_int sym_section.sh_entsize in
+  if entsize = 0 then [||]
+  else
+    let symbol_count = Unsigned.UInt64.to_int sym_section.sh_size / entsize in
+    let elf = cursor buffer in
+    seek elf (Unsigned.UInt64.to_int sym_section.sh_offset);
+    Array.init symbol_count (fun _ -> read_symbol elf str_section 0)
