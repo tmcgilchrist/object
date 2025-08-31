@@ -1,3 +1,3 @@
 (executables
- (names objdump generic_objdump)
+ (names objdump generic_objdump nm)
  (libraries integers object unix cmdliner))

@@ -1,6 +1,7 @@
 (lang dune 3.9)
 (name object)
 (generate_opam_files true)
+(cram enable)
 
 (license MIT)
 (maintainers "Tim McGilchrist <timmcgil@gmail.com>")

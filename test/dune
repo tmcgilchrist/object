@@ -36,9 +36,20 @@
  (action
   (run %{exe:test_elf_arm64.exe} --binary %{dep:hello_world})))
 
+; Provide a plain C program to inspect
+
 (rule
  (alias build-c)
  (deps hello_world.c)
  (target hello_world)
  (action
   (run cc %{deps} -o %{target})))
+
+; Provide a C program with DWARF 5 debug information to inspect.
+
+(rule
+ (alias build-c)
+ (deps hello_world.c)
+ (target hello_world_dwarf_5)
+ (action
+  (run cc -gdwarf-5 %{deps} -o %{target})))

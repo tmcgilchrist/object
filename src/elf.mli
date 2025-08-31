@@ -80,6 +80,10 @@ type elf_machine =
   | `EM_AARCH64  (** ARM AARCH64 *)
   | `EM_RISCV (* RISC-V *)
   | `EM_UNKNOWN of int  (** Unknown machine type *) ]
+(** ELF target machine architecture specification. Indicates the required
+    architecture for the ELF file, determining instruction set compatibility and
+    execution requirements. This field ensures that the file can only be
+    executed on systems with compatible processor architectures. *)
 
 type identification = {
   elf_class : elf_class;  (** Object file class (32-bit, 64-bit, etc.) *)
@@ -154,6 +158,10 @@ type section_type =
   | `SHT_HIPROC  (** End of processor-specific section types. *)
   | `SHT_LOUSER  (** Start of application-specific section types. *)
   | `SHT_HIUSER  (** End of application-specific section types. *) ]
+(** ELF section type classification. Identifies the specific purpose and format
+    of section contents, enabling proper interpretation by linkers, loaders, and
+    debuggers. Different section types require different processing during
+    linking and program loading. *)
 
 type section_flags =
   [ `SHF_WRITE  (** Writable *)
@@ -237,6 +245,10 @@ type program_flags =
   | `PF_RWX  (** Segment is readable, writable and executable *)
   | `PF_MASKOS  (** OS-specific *)
   | `PF_MASKPROC  (** Processor-specific *) ]
+(** ELF program segment permission flags. Defines access permissions for
+    segments in memory during program execution. These flags control memory
+    protection by specifying whether a segment can be read from, written to, or
+    executed, enabling proper memory management and security. *)
 
 type program = {
   p_type : program_type;  (** Segment type *)
@@ -308,6 +320,10 @@ type entry_type =
   | `AT_GID  (** Real gid *)
   | `AT_EGID  (** Effective gid *)
   | `AT_CLKTCK  (** Frequency of times() *) ]
+(** Auxiliary vector entry type identifiers. These constants define the
+    different types of information that can be passed from the kernel to
+    userspace programs through the auxiliary vector, including system
+    parameters, program metadata, and security contexts. *)
 
 type auxiliary_vector = {
   a_type : entry_type;
@@ -456,6 +472,10 @@ type symbol_binding =
   | `STB_LOPROC  (** Start of processor-specific binding *)
   | `STB_HIPROC  (** End of processor-specific binding *)
   | `STB_UNKNOWN of int  (** Unknown binding *) ]
+(** ELF symbol binding attributes. Defines the linkage visibility and behavior
+    of symbols in the symbol table, controlling how symbols are resolved during
+    linking. This determines whether symbols are local to the file, globally
+    visible across modules, or have weak linkage semantics. *)
 
 type symbol_type =
   [ `STT_NOTYPE  (** Symbol type is unspecified *)
@@ -470,6 +490,10 @@ type symbol_type =
   | `STT_LOPROC  (** Start of processor-specific symbol types *)
   | `STT_HIPROC  (** End of processor-specific symbol types *)
   | `STT_UNKNOWN of int  (** Unknown type *) ]
+(** ELF symbol type classification. Categorizes symbols by their nature and
+    intended use, distinguishing between data objects, functions, sections, and
+    special symbol types. This classification helps linkers and debuggers
+    understand how to process and resolve different kinds of symbols. *)
 
 type symbol_visibility =
   [ `STV_DEFAULT  (** Default visibility *)
@@ -477,6 +501,10 @@ type symbol_visibility =
   | `STV_HIDDEN  (** Symbol unavailable to other modules *)
   | `STV_PROTECTED  (** Not preemptible, not exported *)
   | `STV_UNKNOWN of int  (** Unknown visibility *) ]
+(** ELF symbol visibility attributes. Controls the visibility and preemption
+    behavior of symbols during dynamic linking. This determines how symbols are
+    exposed to other modules and whether they can be intercepted or overridden
+    by definitions in other shared libraries. *)
 
 type symbol = {
   st_name : u32;  (** Symbol name string table index *)
@@ -490,6 +518,10 @@ type symbol = {
   st_type : symbol_type;  (** Symbol type *)
   st_visibility : symbol_visibility;  (** Symbol visibility *)
 }
+(** ELF symbol table entry. Represents a single symbol in the symbol table,
+    containing all information needed to identify, locate, and link to the
+    symbol. This includes both the raw ELF fields and parsed representations of
+    binding, type, and visibility attributes. *)
 
 val read_symbol_table :
   ?symtab_name:string -> Buffer.t -> header -> section array -> symbol array
