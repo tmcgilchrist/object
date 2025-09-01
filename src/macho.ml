@@ -299,6 +299,7 @@ type seg_flag =
     (* This segment has nothing that was relocated in it and nothing relocated to it, that is it may be safely replaced without relocation. *)
   ]
 
+(* TODO Should there be 64 and 32 bit versions of this? *)
 type segment = {
   (* segment name *)
   seg_segname : string;
@@ -496,23 +497,23 @@ type toc_entry = { symbol_index : u32; module_index : u32 }
 
 type dynamic_symbol_table = {
   (*  symbol table index and count for local symbols *)
-  localSyms : u32 * u32;
+  local_syms : u32 * u32;
   (*  symbol table index and count for externally defined symbols *)
-  extDefSyms : u32 * u32;
+  ext_def_syms : u32 * u32;
   (*  symbol table index and count for undefined symbols *)
-  undefSyms : u32 * u32;
+  undef_syms : u32 * u32;
   (*  list of symbol index and module index pairs *)
   toc_entries : toc_entry array;
   (*  modules *)
   modules : dylib_module array;
   (*  list of external reference symbol indices *)
-  extRefSyms : u32 array;
+  ext_ref_syms : u32 array;
   (*  list of indirect symbol indices *)
-  indirectSyms : u32 array;
+  indirect_syms : u32 array;
   (*  external locations *)
-  extRels : relocation array;
+  ext_rels : relocation array;
   (*  local relocations *)
-  locRels : relocation array;
+  loc_rels : relocation array;
 }
 
 type dylib = {
@@ -908,14 +909,14 @@ let read_dynamic_symbol_table header t buf =
   let nundefsym = Read.u32 t in
   let tocoff = Read.u32 t in
   let ntoc = Read.u32 t in
-  let toc =
+  let toc_entries =
     read_n_times read_toc
       (cursor buf ~at:(Unsigned.UInt32.to_int tocoff))
       (Unsigned.UInt32.to_int ntoc)
   in
   let modtaboff = Read.u32 t in
   let nmodtab = Read.u32 t in
-  let modtab =
+  let modules =
     read_n_times
       (if is64bit header then read_module_64 else read_module_32)
       (cursor buf ~at:(Unsigned.UInt32.to_int modtaboff))
@@ -923,42 +924,42 @@ let read_dynamic_symbol_table header t buf =
   in
   let extrefsymoff = Read.u32 t in
   let nextrefsyms = Read.u32 t in
-  let extrefsyms =
+  let ext_ref_syms =
     read_n_times Read.u32
       (cursor buf ~at:(Unsigned.UInt32.to_int extrefsymoff))
       (Unsigned.UInt32.to_int nextrefsyms)
   in
   let indirectsymoff = Read.u32 t in
   let nindirectsyms = Read.u32 t in
-  let indirectsyms =
+  let indirect_syms =
     read_n_times Read.u32
       (cursor buf ~at:(Unsigned.UInt32.to_int indirectsymoff))
       (Unsigned.UInt32.to_int nindirectsyms)
   in
   let extreloff = Read.u32 t in
   let nextrel = Read.u32 t in
-  let extrels =
+  let ext_rels =
     read_n_times (read_relocation header)
       (cursor buf ~at:(Unsigned.UInt32.to_int extreloff))
       (Unsigned.UInt32.to_int nextrel)
   in
   let locreloff = Read.u32 t in
   let nlocrel = Read.u32 t in
-  let locrels =
+  let loc_rels =
     read_n_times (read_relocation header)
       (cursor buf ~at:(Unsigned.UInt32.to_int locreloff))
       (Unsigned.UInt32.to_int nlocrel)
   in
   {
-    localSyms = (ilocalsym, nlocalsym);
-    extDefSyms = (iextdefsym, nextdefsym);
-    undefSyms = (iundefsym, nundefsym);
-    toc_entries = toc;
-    modules = modtab;
-    extRefSyms = extrefsyms;
-    indirectSyms = indirectsyms;
-    extRels = extrels;
-    locRels = locrels;
+    local_syms = (ilocalsym, nlocalsym);
+    ext_def_syms = (iextdefsym, nextdefsym);
+    undef_syms = (iundefsym, nundefsym);
+    toc_entries;
+    modules;
+    ext_ref_syms;
+    indirect_syms;
+    ext_rels;
+    loc_rels;
   }
 
 let fixed_0_string t n =
@@ -1003,15 +1004,15 @@ let sec_sys_attr n =
     [ (7, `LOC_RELOC); (8, `EXT_RELOC); (9, `SOME_INSTRUCTIONS) ]
 
 let read_section_32 header buf t =
-  let sectname = fixed_0_string t 16 in
-  let segname = fixed_0_string t 16 in
+  let sec_sectname = fixed_0_string t 16 in
+  let sec_segname = fixed_0_string t 16 in
   let addr = Read.u32 t in
   let size = Read.u32 t in
-  let offset = Read.u32 t in
-  let align = 1 lsl Unsigned.UInt32.to_int (Read.u32 t) in
+  let sec_offset = Read.u32 t in
+  let sec_align = 1 lsl Unsigned.UInt32.to_int (Read.u32 t) in
   let reloff = Read.u32 t in
   let nreloc = Read.u32 t in
-  let relocs =
+  let sec_relocs =
     read_n_times (read_relocation header)
       (cursor buf ~at:(Unsigned.UInt32.to_int reloff))
       (Unsigned.UInt32.to_int nreloc)
@@ -1020,19 +1021,19 @@ let read_section_32 header buf t =
   let _reserved = Read.u32 t in
   let _reserved = Read.u32 t in
   let sec_type = sec_type (Unsigned.UInt32.to_int flags) in
-  let user_attrs = sec_user_attr (Unsigned.UInt32.to_int flags) in
-  let sys_attrs = sec_sys_attr (Unsigned.UInt32.to_int flags) in
+  let sec_user_attrs = sec_user_attr (Unsigned.UInt32.to_int flags) in
+  let sec_sys_attrs = sec_sys_attr (Unsigned.UInt32.to_int flags) in
   {
-    sec_sectname = sectname;
-    sec_segname = segname;
+    sec_sectname;
+    sec_segname;
     sec_addr = Unsigned.UInt64.of_int (Unsigned.UInt32.to_int addr);
     sec_size = Unsigned.UInt64.of_int (Unsigned.UInt32.to_int size);
-    sec_offset = offset;
-    sec_align = align;
-    sec_relocs = relocs;
+    sec_offset;
+    sec_align;
+    sec_relocs;
     sec_type;
-    sec_user_attrs = user_attrs;
-    sec_sys_attrs = sys_attrs;
+    sec_user_attrs;
+    sec_sys_attrs;
   }
 
 let read_vm_prot t =
@@ -1048,28 +1049,36 @@ let read_seg_flag t =
     [ (0, `HIGHVM); (2, `NORELOC) ]
 
 let read_segment_32 header buf t =
-  let segname = fixed_0_string t 16 in
-  let vmaddr = Read.u32 t in
-  let vmsize = Read.u32 t in
-  let fileoff = Read.u32 t in
-  let filesize = Read.u32 t in
-  let maxprot = read_vm_prot t in
-  let initprot = read_vm_prot t in
+  let seg_segname = fixed_0_string t 16 in
+  let seg_vmaddr =
+    Unsigned.UInt64.of_int (Unsigned.UInt32.to_int (Read.u32 t))
+  in
+  let seg_vmsize =
+    Unsigned.UInt64.of_int (Unsigned.UInt32.to_int (Read.u32 t))
+  in
+  let seg_fileoff =
+    Unsigned.UInt64.of_int (Unsigned.UInt32.to_int (Read.u32 t))
+  in
+  let seg_filesize =
+    Unsigned.UInt64.of_int (Unsigned.UInt32.to_int (Read.u32 t))
+  in
+  let seg_maxprot = read_vm_prot t in
+  let seg_initprot = read_vm_prot t in
   let nsects = Read.u32 t in
-  let flags = read_seg_flag t in
-  let sects =
+  let seg_flags = read_seg_flag t in
+  let seg_sections =
     read_n_times (read_section_32 header buf) t (Unsigned.UInt32.to_int nsects)
   in
   {
-    seg_segname = segname;
-    seg_vmaddr = Unsigned.UInt64.of_int (Unsigned.UInt32.to_int vmaddr);
-    seg_vmsize = Unsigned.UInt64.of_int (Unsigned.UInt32.to_int vmsize);
-    seg_fileoff = Unsigned.UInt64.of_int (Unsigned.UInt32.to_int fileoff);
-    seg_filesize = Unsigned.UInt64.of_int (Unsigned.UInt32.to_int filesize);
-    seg_maxprot = maxprot;
-    seg_initprot = initprot;
-    seg_flags = flags;
-    seg_sections = sects;
+    seg_segname;
+    seg_vmaddr;
+    seg_vmsize;
+    seg_fileoff;
+    seg_filesize;
+    seg_maxprot;
+    seg_initprot;
+    seg_flags;
+    seg_sections;
   }
 
 let read_section_64 header buf t =
@@ -1107,28 +1116,28 @@ let read_section_64 header buf t =
   }
 
 let read_segment_64 header buf t =
-  let segname = fixed_0_string t 16 in
-  let vmaddr = Read.u64 t in
-  let vmsize = Read.u64 t in
-  let fileoff = Read.u64 t in
-  let filesize = Read.u64 t in
-  let maxprot = read_vm_prot t in
-  let initprot = read_vm_prot t in
+  let seg_segname = fixed_0_string t 16 in
+  let seg_vmaddr = Read.u64 t in
+  let seg_vmsize = Read.u64 t in
+  let seg_fileoff = Read.u64 t in
+  let seg_filesize = Read.u64 t in
+  let seg_maxprot = read_vm_prot t in
+  let seg_initprot = read_vm_prot t in
   let nsects = Read.u32 t in
-  let flags = read_seg_flag t in
-  let sects =
+  let seg_flags = read_seg_flag t in
+  let seg_sections =
     read_n_times (read_section_64 header buf) t (Unsigned.UInt32.to_int nsects)
   in
   {
-    seg_segname = segname;
-    seg_vmaddr = vmaddr;
-    seg_vmsize = vmsize;
-    seg_fileoff = fileoff;
-    seg_filesize = filesize;
-    seg_maxprot = maxprot;
-    seg_initprot = initprot;
-    seg_flags = flags;
-    seg_sections = sects;
+    seg_segname;
+    seg_vmaddr;
+    seg_vmsize;
+    seg_fileoff;
+    seg_filesize;
+    seg_maxprot;
+    seg_initprot;
+    seg_flags;
+    seg_sections;
   }
 
 let read_routines_command_32 t =

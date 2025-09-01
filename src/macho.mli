@@ -502,18 +502,18 @@ type toc_entry = {
 (** Table of contents entry mapping symbols to their defining modules. *)
 
 type dynamic_symbol_table = {
-  localSyms : u32 * u32;  (** Symbol table index and count for local symbols *)
-  extDefSyms : u32 * u32;
+  local_syms : u32 * u32;  (** Symbol table index and count for local symbols *)
+  ext_def_syms : u32 * u32;
       (** Symbol table index and count for externally defined symbols *)
-  undefSyms : u32 * u32;
+  undef_syms : u32 * u32;
       (** Symbol table index and count for undefined symbols *)
   toc_entries : toc_entry array;
       (** List of symbol index and module index pairs *)
   modules : dylib_module array;  (** Modules *)
-  extRefSyms : u32 array;  (** List of external reference symbol indices *)
-  indirectSyms : u32 array;  (** List of indirect symbol indices *)
-  extRels : relocation array;  (** External relocations *)
-  locRels : relocation array;  (** Local relocations *)
+  ext_ref_syms : u32 array;  (** List of external reference symbol indices *)
+  indirect_syms : u32 array;  (** List of indirect symbol indices *)
+  ext_rels : relocation array;  (** External relocations *)
+  loc_rels : relocation array;  (** Local relocations *)
 }
 (** Dynamic symbol table containing information needed for dynamic linking,
     including symbol organization and relocation data. *)
