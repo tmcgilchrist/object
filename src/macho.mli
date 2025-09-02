@@ -620,3 +620,8 @@ val read : Buffer.t -> header * command list
 val section_body : Buffer.t -> section -> Buffer.t
 (** [section_body macho section] returns a sub-buffer with the contents of the
     [section] of the MachO image in [Buffer.t]. *)
+
+val get_section_contents : Buffer.t -> string -> Buffer.t option
+(** [get_section_contents buffer section_name] searches for a section with the
+    given [section_name] in the Mach-O file and returns its contents as a
+    buffer. Returns [None] if the section is not found. *)

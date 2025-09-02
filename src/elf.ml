@@ -723,3 +723,7 @@ let read_symbol_table ?symtab_name buffer _header sections =
     let elf = cursor buffer in
     seek elf (Unsigned.UInt64.to_int sym_section.sh_offset);
     Array.init symbol_count (fun _ -> read_symbol elf str_section 0)
+
+let get_section_contents buffer section_name =
+  let _header, sections = read_elf buffer in
+  read_section_contents buffer sections section_name

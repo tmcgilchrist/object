@@ -546,3 +546,8 @@ val read_section_contents :
   Buffer.t -> section array -> string -> Buffer.t option
 (** [read_section_contents buf section_name] reads the section contents for
     [section_name]. Returns None if the section name is not found *)
+
+val get_section_contents : Buffer.t -> string -> Buffer.t option
+(** [get_section_contents buffer section_name] searches for a section with the
+    given [section_name] in the ELF file and returns its contents as a buffer.
+    Returns [None] if the section is not found. *)

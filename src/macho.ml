@@ -1335,3 +1335,23 @@ let section_body buffer sec =
   Bigarray.Array1.sub buffer
     (Unsigned.UInt32.to_int sec.sec_offset)
     (Unsigned.UInt64.to_int sec.sec_size)
+
+let get_section_contents buffer section_name =
+  let _header, commands = read buffer in
+  let section_opt =
+    List.fold_left
+      (fun acc command ->
+        match command with
+        | LC_SEGMENT_64 lazy_seg ->
+            let seg = Lazy.force lazy_seg in
+            Array.fold_left
+              (fun acc section ->
+                if section.sec_sectname = section_name then Some section
+                else acc)
+              acc seg.seg_sections
+        | _ -> acc)
+      None commands
+  in
+  match section_opt with
+  | Some section -> Some (section_body buffer section)
+  | None -> None
