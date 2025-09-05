@@ -5,6 +5,12 @@
   (run %{exe:test_object.exe})))
 
 (test
+ (name test_leb128)
+ (libraries object integers alcotest)
+ (action
+  (run %{exe:test_leb128.exe})))
+
+(test
  (name test_macho_arm64)
  (deps hello_world)
  (build_if
