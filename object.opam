@@ -3,12 +3,19 @@ opam-version: "2.0"
 synopsis: "A unified interface for reading and writing object file formats"
 description:
   "A unified interface for reading and writing object file formats"
+maintainer: ["Tim McGilchrist <timmcgil@gmail.com>"]
+authors: ["Tim McGilchrist <timmcgil@gmail.com>"]
 license: "MIT"
+tags: ["elf" "object" "mach-o" "pe" "coff"]
+homepage: "https://github.com/tmcgilchrist/object"
+bug-reports: "https://github.com/tmcgilchrist/object/issues"
 depends: [
-  "dune" {>= "3.0"}
+  "dune" {>= "3.9"}
   "ocaml" {>= "4.08"}
   "integers"
   "cmdliner" {with-test}
+  "alcotest" {with-test}
+  "ocamlformat" {with-dev-setup & = "0.27.0"}
   "odoc" {with-doc}
 ]
 build: [
@@ -24,4 +31,8 @@ build: [
     "@runtest" {with-test}
     "@doc" {with-doc}
   ]
+]
+dev-repo: "git+https://github.com/tmcgilchrist/object.git"
+pin-depends: [
+  ["integers.dev" "git+https://github.com/tmcgilchrist/ocaml-integers.git#small-signed-integers-fixes"]
 ]
