@@ -9,8 +9,11 @@ module Macho = Macho
 module Elf = Elf
 (** Low-level ELF file format *)
 
+module Pe = Pe
+(** Low-level PE/COFF file format *)
+
 module Format = Object_format
-(** Generic abstraction over ELF and Mach-O file formats *)
+(** Generic abstraction over ELF, Mach-O, and PE file formats *)
 
 module Types = Types
 (** Common type definitions *)

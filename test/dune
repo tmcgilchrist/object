@@ -45,17 +45,25 @@
 ; Provide a plain C program to inspect
 
 (rule
- (alias build-c)
+ (aliases build-c runtest)
  (deps hello_world.c)
  (target hello_world)
+ (enabled_if
+  (or
+   (= %{system} "linux")
+   (= %{system} "macosx")))
  (action
   (run cc %{deps} -o %{target})))
 
 ; Provide a C program with DWARF 5 debug information to inspect.
 
 (rule
- (alias build-c)
+ (aliases build-c runtest)
  (deps hello_world.c)
  (target hello_world_dwarf_5)
+ (enabled_if
+  (or
+   (= %{system} "linux")
+   (= %{system} "macosx")))
  (action
   (run cc -gdwarf-5 %{deps} -o %{target})))
