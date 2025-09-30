@@ -68,3 +68,6 @@ val format : t -> format
 val architecture : t -> arch
 val is_64bit : t -> bool
 val is_executable : t -> bool
+
+val detect_format : Buffer.t -> format
+(** Detect file format from buffer using magic numbers *)

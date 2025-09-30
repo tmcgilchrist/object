@@ -241,3 +241,16 @@ let format t = t.header.format
 let architecture t = t.header.architecture
 let is_64bit t = t.header.is_64bit
 let is_executable t = t.header.is_executable
+
+(** Detect file format from buffer using magic numbers *)
+let detect_format (buf : Buffer.t) =
+  let cursor = Buffer.cursor buf in
+  let magic = Buffer.Read.u32 cursor in
+  let magic_int = Unsigned.UInt32.to_int magic in
+  match magic_int with
+  | 0x7f454c46 -> ELF (* ELF magic: \x7fELF big-endian *)
+  | 0x464c457f -> ELF (* ELF magic: \x7fELF little-endian *)
+  | 0xFEEDFACE | 0xFEEDFACF | 0xCEFAEDFE | 0xCFFAEDFE ->
+     MACHO (* Mach-O magics *)
+  | _ -> failwith "Unsupported file format"
+
