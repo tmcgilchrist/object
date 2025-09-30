@@ -701,6 +701,11 @@ let cpu_subtype ty tag =
   | `ARM, 11 -> `ARM_V7S
   | `ARM, 12 -> `ARM_V7K
   | `ARM, 13 -> `ARM_V8
+  | `ARM64, 0 -> `ARM_ALL
+  | `ARM64, 1 -> `ARM_V8
+  | `ARM64, 2 -> `ARM_V8
+  | `ARM64_32, 0 -> `ARM_ALL
+  | `ARM64_32, 1 -> `ARM_V8
   | _, n -> `Unknown n
 
 let file_type = function
@@ -1355,3 +1360,191 @@ let get_section_contents buffer section_name =
   match section_opt with
   | Some section -> Some (section_body buffer section)
   | None -> None
+
+(* FAT/Universal Binary Support *)
+
+type fat_magic = FAT_MAGIC | FAT_CIGAM | FAT_MAGIC_64 | FAT_CIGAM_64
+
+type fat_arch = {
+  fa_cputype : cpu_type;
+  fa_cpusubtype : cpu_subtype;
+  fa_offset : u32;
+  fa_size : u32;
+  fa_align : u32;
+}
+
+type fat_arch_64 = {
+  fa64_cputype : cpu_type;
+  fa64_cpusubtype : cpu_subtype;
+  fa64_offset : u64;
+  fa64_size : u64;
+  fa64_align : u32;
+  fa64_reserved : u32;
+}
+
+type fat_arch_any = [ `Fat_arch of fat_arch | `Fat_arch_64 of fat_arch_64 ]
+type fat_header = { fat_magic : fat_magic; fat_archs : fat_arch_any array }
+
+let fat_magic = function
+  | 0xCAFEBABE -> FAT_MAGIC
+  | 0xBEBAFECA -> FAT_CIGAM
+  | 0xCAFEBABF -> FAT_MAGIC_64
+  | 0xBFBAFECA -> FAT_CIGAM_64
+  | _ -> invalid_format "fat_magic"
+
+let is_fat buffer =
+  let t = cursor buffer in
+  let magic_val = Unsigned.UInt32.to_int (Read.u32 t) in
+  match magic_val with
+  | 0xCAFEBABE | 0xBEBAFECA | 0xCAFEBABF | 0xBFBAFECA -> true
+  | _ -> false
+
+let read_u32_be t =
+  let b0 = Unsigned.UInt8.to_int (Read.u8 t) in
+  let b1 = Unsigned.UInt8.to_int (Read.u8 t) in
+  let b2 = Unsigned.UInt8.to_int (Read.u8 t) in
+  let b3 = Unsigned.UInt8.to_int (Read.u8 t) in
+  Unsigned.UInt32.of_int ((b0 lsl 24) lor (b1 lsl 16) lor (b2 lsl 8) lor b3)
+
+let read_u64_be t =
+  let hi = Unsigned.UInt32.to_int64 (read_u32_be t) in
+  let lo = Unsigned.UInt32.to_int64 (read_u32_be t) in
+  Unsigned.UInt64.of_int64 (Int64.logor (Int64.shift_left hi 32) lo)
+
+let read_s32_be t =
+  let u = read_u32_be t in
+  Unsigned.UInt32.to_int32 u
+
+let read_fat_arch t =
+  let fa_cputype = cpu_type (Int32.to_int (read_s32_be t)) in
+  let fa_cpusubtype = cpu_subtype fa_cputype (Int32.to_int (read_s32_be t)) in
+  let fa_offset = read_u32_be t in
+  let fa_size = read_u32_be t in
+  let fa_align = read_u32_be t in
+  { fa_cputype; fa_cpusubtype; fa_offset; fa_size; fa_align }
+
+let read_fat_arch_64 t =
+  let fa64_cputype = cpu_type (Int32.to_int (read_s32_be t)) in
+  let fa64_cpusubtype =
+    cpu_subtype fa64_cputype (Int32.to_int (read_s32_be t))
+  in
+  let fa64_offset = read_u64_be t in
+  let fa64_size = read_u64_be t in
+  let fa64_align = read_u32_be t in
+  let fa64_reserved = read_u32_be t in
+  {
+    fa64_cputype;
+    fa64_cpusubtype;
+    fa64_offset;
+    fa64_size;
+    fa64_align;
+    fa64_reserved;
+  }
+
+let read_fat buffer =
+  let t = cursor buffer in
+  let magic_val = Unsigned.UInt32.to_int (read_u32_be t) in
+  let fat_magic = fat_magic magic_val in
+  let nfat_arch = Unsigned.UInt32.to_int (read_u32_be t) in
+  let fat_archs =
+    match fat_magic with
+    | FAT_MAGIC | FAT_CIGAM ->
+        Array.init nfat_arch (fun _ -> `Fat_arch (read_fat_arch t))
+    | FAT_MAGIC_64 | FAT_CIGAM_64 ->
+        Array.init nfat_arch (fun _ -> `Fat_arch_64 (read_fat_arch_64 t))
+  in
+  { fat_magic; fat_archs }
+
+let extract_arch buffer arch =
+  match arch with
+  | `Fat_arch fa ->
+      Bigarray.Array1.sub buffer
+        (Unsigned.UInt32.to_int fa.fa_offset)
+        (Unsigned.UInt32.to_int fa.fa_size)
+  | `Fat_arch_64 fa64 ->
+      Bigarray.Array1.sub buffer
+        (Unsigned.UInt64.to_int fa64.fa64_offset)
+        (Unsigned.UInt64.to_int fa64.fa64_size)
+
+let arch_name arch =
+  let cputype, cpusubtype =
+    match arch with
+    | `Fat_arch fa -> (fa.fa_cputype, fa.fa_cpusubtype)
+    | `Fat_arch_64 fa64 -> (fa64.fa64_cputype, fa64.fa64_cpusubtype)
+  in
+  let base =
+    match cputype with
+    | `X86 -> "i386"
+    | `X86_64 -> "x86_64"
+    | `ARM -> "arm"
+    | `ARM64 -> "arm64"
+    | `ARM64_32 -> "arm64_32"
+    | `POWERPC -> "ppc"
+    | `POWERPC64 -> "ppc64"
+    | `Unknown n -> Printf.sprintf "unknown(%d)" n
+  in
+  match (cputype, cpusubtype) with
+  | `ARM64, `Unknown n when n land 0xffffff = 2 -> "arm64e"
+  | _ -> base
+
+let find_arch fat_header name =
+  Array.find_opt (fun arch -> arch_name arch = name) fat_header.fat_archs
+
+let extract_arch_by_name buffer name =
+  if not (is_fat buffer) then None
+  else
+    let fat_header = read_fat buffer in
+    match find_arch fat_header name with
+    | Some arch -> Some (extract_arch buffer arch)
+    | None -> None
+
+type fat_validation_error =
+  | Overlap of int * int * int * int
+  | Invalid_alignment of string * int * int
+  | Out_of_bounds of string * int * int * int
+  | Invalid_arch_count of int
+
+let validate_fat buffer =
+  if not (is_fat buffer) then Error [ Invalid_arch_count 0 ]
+  else
+    let fat_header = read_fat buffer in
+    let buffer_size = Bigarray.Array1.dim buffer in
+    let errors = ref [] in
+    let nfat_arch = Array.length fat_header.fat_archs in
+    if nfat_arch = 0 then errors := Invalid_arch_count 0 :: !errors;
+    Array.iteri
+      (fun i arch1 ->
+        let offset1, size1, align1, name1 =
+          match arch1 with
+          | `Fat_arch fa ->
+              ( Unsigned.UInt32.to_int fa.fa_offset,
+                Unsigned.UInt32.to_int fa.fa_size,
+                Unsigned.UInt32.to_int fa.fa_align,
+                arch_name arch1 )
+          | `Fat_arch_64 fa64 ->
+              ( Unsigned.UInt64.to_int fa64.fa64_offset,
+                Unsigned.UInt64.to_int fa64.fa64_size,
+                Unsigned.UInt32.to_int fa64.fa64_align,
+                arch_name arch1 )
+        in
+        if offset1 + size1 > buffer_size then
+          errors :=
+            Out_of_bounds (name1, offset1, size1, buffer_size) :: !errors;
+        if align1 > 0 && offset1 land ((1 lsl align1) - 1) <> 0 then
+          errors := Invalid_alignment (name1, offset1, align1) :: !errors;
+        for j = i + 1 to nfat_arch - 1 do
+          let arch2 = fat_header.fat_archs.(j) in
+          let offset2, size2 =
+            match arch2 with
+            | `Fat_arch fa ->
+                ( Unsigned.UInt32.to_int fa.fa_offset,
+                  Unsigned.UInt32.to_int fa.fa_size )
+            | `Fat_arch_64 fa64 ->
+                ( Unsigned.UInt64.to_int fa64.fa64_offset,
+                  Unsigned.UInt64.to_int fa64.fa64_size )
+          in
+          if not (offset1 + size1 <= offset2 || offset2 + size2 <= offset1) then
+            errors := Overlap (offset1, size1, offset2, size2) :: !errors
+        done)
+      fat_header.fat_archs;
+    if !errors = [] then Ok () else Error (List.rev !errors)

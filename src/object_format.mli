@@ -2,6 +2,9 @@ open Types
 
 (** Generic abstraction over ELF and Mach-O object file formats *)
 
+exception Invalid_format of string
+(** Exception raised when file format is invalid or unsupported *)
+
 type arch =
   [ `X86 | `X86_64 | `ARM | `ARM64 | `POWERPC | `POWERPC64 | `Unknown of int ]
 (** Architecture types *)
@@ -71,3 +74,35 @@ val is_executable : t -> bool
 
 val detect_format : Buffer.t -> format
 (** Detect file format from buffer using magic numbers *)
+
+(** {2 Multi-Architecture Support} *)
+
+val is_fat : Buffer.t -> bool
+(** [is_fat buffer] checks if the buffer contains a FAT/Universal binary.
+
+    @param buffer The buffer to check
+    @return true if FAT binary, false otherwise *)
+
+val list_archs : Buffer.t -> string array
+(** [list_archs buffer] returns the list of architecture names in a FAT binary.
+
+    @param buffer The FAT binary buffer
+    @return Array of architecture names (e.g. ["x86_64"; "arm64e"])
+    @raise Invalid_format if not a FAT binary *)
+
+val read_arch : Buffer.t -> string -> t
+(** [read_arch buffer arch_name] reads a specific architecture from a FAT
+    binary.
+
+    @param buffer The FAT binary buffer
+    @param arch_name The architecture name to read
+    @return Parsed object file for that architecture
+    @raise Invalid_format if not a FAT binary or architecture not found *)
+
+val iter_archs : Buffer.t -> (string -> t -> unit) -> unit
+(** [iter_archs buffer f] iterates over all architectures in a FAT binary,
+    calling [f arch_name obj] for each one.
+
+    @param buffer The FAT binary buffer
+    @param f Function to call for each architecture
+    @raise Invalid_format if not a FAT binary *)

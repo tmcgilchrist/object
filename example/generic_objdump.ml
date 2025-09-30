@@ -1,5 +1,7 @@
 (** Generic object file dumper using the unified Object.Format interface *)
 
+open Cmdliner
+
 let print_header (obj : Object.Format.t) =
   let header = obj.header in
   let format_str =
@@ -90,10 +92,24 @@ let dump_file filename =
   with exn ->
     Printf.eprintf "Error processing %s: %s\n" filename (Printexc.to_string exn)
 
-let () =
-  if Array.length Sys.argv < 2 then
-    Printf.eprintf "Usage: %s <object_files...>\n" Sys.argv.(0)
-  else
-    for i = 1 to Array.length Sys.argv - 1 do
-      dump_file Sys.argv.(i)
-    done
+let generic_objdump files =
+  List.iter (fun file -> ignore (dump_file file)) files;
+  `Ok ()
+
+let files =
+  let doc = "Object files to analyze" in
+  Arg.(non_empty & pos_all string [] & info [] ~docv:"FILES" ~doc)
+
+let generic_objdump_t = Term.(ret (const generic_objdump $ files))
+
+let info =
+  let doc = "generic object file dumper" in
+  let man =
+    [
+      `S Manpage.s_description;
+      `P "Display information about object files using a unified interface.";
+    ]
+  in
+  Cmd.info "generic_objdump" ~version:"1.0" ~doc ~man
+
+let () = exit (Cmd.eval (Cmd.v info generic_objdump_t))

@@ -1,5 +1,7 @@
 open Types
 
+exception Invalid_format of string
+
 type arch =
   [ `X86 | `X86_64 | `ARM | `ARM64 | `POWERPC | `POWERPC64 | `Unknown of int ]
 
@@ -115,6 +117,8 @@ let detect_format (buf : Buffer.t) : format =
   | 0x464c457f -> ELF (* ELF magic: \x7fELF little-endian *)
   | 0xFEEDFACE | 0xFEEDFACF | 0xCEFAEDFE | 0xCFFAEDFE ->
       MACHO (* Mach-O magics *)
+  | 0xCAFEBABE | 0xBEBAFECA | 0xCAFEBABF | 0xBFBAFECA ->
+      MACHO (* FAT/Universal binaries contain Mach-O *)
   | _ -> failwith "Unsupported file format"
 
 (** Parse Mach-O file *)
@@ -251,6 +255,40 @@ let detect_format (buf : Buffer.t) =
   | 0x7f454c46 -> ELF (* ELF magic: \x7fELF big-endian *)
   | 0x464c457f -> ELF (* ELF magic: \x7fELF little-endian *)
   | 0xFEEDFACE | 0xFEEDFACF | 0xCEFAEDFE | 0xCFFAEDFE ->
-     MACHO (* Mach-O magics *)
+      MACHO (* Mach-O magics *)
+  | 0xCAFEBABE | 0xBEBAFECA | 0xCAFEBABF | 0xBFBAFECA ->
+      MACHO (* FAT/Universal binaries contain Mach-O *)
   | _ -> failwith "Unsupported file format"
 
+let is_fat buffer = Macho.is_fat buffer
+
+let list_archs buffer =
+  if not (Macho.is_fat buffer) then
+    raise (Invalid_format "Buffer is not a FAT binary")
+  else
+    let fat_header = Macho.read_fat buffer in
+    Array.map Macho.arch_name fat_header.Macho.fat_archs
+
+let read_arch buffer arch_name =
+  if not (Macho.is_fat buffer) then
+    raise (Invalid_format "Buffer is not a FAT binary")
+  else
+    match Macho.extract_arch_by_name buffer arch_name with
+    | Some arch_buffer -> read arch_buffer
+    | None ->
+        raise
+          (Invalid_format
+             (Printf.sprintf "Architecture %s not found in FAT binary" arch_name))
+
+let iter_archs buffer f =
+  if not (Macho.is_fat buffer) then
+    raise (Invalid_format "Buffer is not a FAT binary")
+  else
+    let fat_header = Macho.read_fat buffer in
+    Array.iter
+      (fun arch ->
+        let arch_name = Macho.arch_name arch in
+        let arch_buffer = Macho.extract_arch buffer arch in
+        let obj = read arch_buffer in
+        f arch_name obj)
+      fat_header.Macho.fat_archs

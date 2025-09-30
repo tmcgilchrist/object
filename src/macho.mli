@@ -625,3 +625,109 @@ val get_section_contents : Buffer.t -> string -> Buffer.t option
 (** [get_section_contents buffer section_name] searches for a section with the
     given [section_name] in the Mach-O file and returns its contents as a
     buffer. Returns [None] if the section is not found. *)
+
+(** {1 FAT/Universal Binary Support} *)
+
+type fat_magic =
+  | FAT_MAGIC
+  | FAT_CIGAM
+  | FAT_MAGIC_64
+  | FAT_CIGAM_64
+      (** Magic numbers for FAT/Universal binaries.
+          - [FAT_MAGIC]: 32-bit FAT binary, big-endian (0xcafebabe)
+          - [FAT_CIGAM]: 32-bit FAT binary, byte-swapped (0xbebafeca)
+          - [FAT_MAGIC_64]: 64-bit FAT binary, big-endian (0xcafebabf)
+          - [FAT_CIGAM_64]: 64-bit FAT binary, byte-swapped (0xbfbafeca) *)
+
+type fat_arch = {
+  fa_cputype : cpu_type;  (** CPU type *)
+  fa_cpusubtype : cpu_subtype;  (** CPU subtype *)
+  fa_offset : u32;  (** File offset to this architecture's Mach-O *)
+  fa_size : u32;  (** Size of this architecture's Mach-O *)
+  fa_align : u32;  (** Alignment as a power of 2 *)
+}
+(** Architecture descriptor for 32-bit FAT binaries. Describes the location and
+    size of a single architecture's Mach-O binary within the FAT file. *)
+
+type fat_arch_64 = {
+  fa64_cputype : cpu_type;  (** CPU type *)
+  fa64_cpusubtype : cpu_subtype;  (** CPU subtype *)
+  fa64_offset : u64;  (** File offset to this architecture's Mach-O *)
+  fa64_size : u64;  (** Size of this architecture's Mach-O *)
+  fa64_align : u32;  (** Alignment as a power of 2 *)
+  fa64_reserved : u32;  (** Reserved, must be 0 *)
+}
+(** Architecture descriptor for 64-bit FAT binaries. Used when offsets or sizes
+    exceed 4GB (2^32 bytes). *)
+
+type fat_arch_any = [ `Fat_arch of fat_arch | `Fat_arch_64 of fat_arch_64 ]
+(** Union type for either 32-bit or 64-bit FAT architecture descriptor. *)
+
+type fat_header = {
+  fat_magic : fat_magic;  (** Magic number identifying FAT format *)
+  fat_archs : fat_arch_any array;  (** Array of architecture descriptors *)
+}
+(** FAT binary header containing magic number and all architecture descriptors.
+    FAT binaries are always stored in big-endian format. *)
+
+val is_fat : Buffer.t -> bool
+(** [is_fat buffer] checks if the buffer contains a FAT/Universal binary by
+    examining the magic number at the beginning of the buffer. *)
+
+val read_fat : Buffer.t -> fat_header
+(** [read_fat buffer] parses a FAT binary header from the buffer. The buffer
+    must point to the start of a FAT binary. Handles both 32-bit and 64-bit FAT
+    formats and performs byte-swapping if needed (FAT is always big-endian).
+
+    @raise Invalid_format if the buffer is not a valid FAT binary *)
+
+val extract_arch : Buffer.t -> fat_arch_any -> Buffer.t
+(** [extract_arch buffer arch] extracts a single architecture's Mach-O binary
+    from a FAT binary as a sub-buffer. The returned buffer can be passed to
+    [read] to parse the Mach-O contents.
+
+    @param buffer The complete FAT binary buffer
+    @param arch The architecture descriptor to extract
+    @return A sub-buffer containing just that architecture's Mach-O binary *)
+
+val arch_name : fat_arch_any -> string
+(** [arch_name arch] returns the architecture name as a string (e.g. "x86_64",
+    "arm64", "arm64e"). Handles special cases like ARM64E (subtype 2).
+
+    @param arch The architecture descriptor
+    @return Architecture name string *)
+
+val find_arch : fat_header -> string -> fat_arch_any option
+(** [find_arch fat_header arch_name] searches for an architecture by name in the
+    FAT header.
+
+    @param fat_header The FAT header to search
+    @param arch_name The architecture name to find (e.g. "x86_64", "arm64e")
+    @return Some arch if found, None otherwise *)
+
+val extract_arch_by_name : Buffer.t -> string -> Buffer.t option
+(** [extract_arch_by_name buffer arch_name] extracts a single architecture's
+    Mach-O binary by name from a FAT binary. Convenience function combining
+    [read_fat], [find_arch], and [extract_arch].
+
+    @param buffer The complete FAT binary buffer
+    @param arch_name The architecture name to extract
+    @return Some sub-buffer if architecture found, None otherwise *)
+
+(** {2 FAT Binary Validation} *)
+
+type fat_validation_error =
+  | Overlap of int * int * int * int
+      (** Architecture overlap: (offset1, size1, offset2, size2) *)
+  | Invalid_alignment of string * int * int
+      (** Invalid alignment: (arch_name, offset, align) *)
+  | Out_of_bounds of string * int * int * int
+      (** Out of bounds: (arch_name, offset, size, buffer_size) *)
+  | Invalid_arch_count of int  (** Invalid architecture count *)
+
+val validate_fat : Buffer.t -> (unit, fat_validation_error list) result
+(** [validate_fat buffer] validates a FAT binary for correctness. Checks for
+    overlapping architectures, proper alignment, and bounds.
+
+    @param buffer The FAT binary buffer to validate
+    @return Ok () if valid, Error list of validation errors otherwise *)

@@ -11,6 +11,16 @@
   (run %{exe:test_leb128.exe})))
 
 (test
+ (name test_fat)
+ (build_if
+  (and
+   (= %{system} "macosx")
+   (= %{architecture} "arm64")))
+ (libraries object integers alcotest)
+ (action
+  (run %{exe:test_fat.exe})))
+
+(test
  (name test_macho_arm64)
  (deps hello_world)
  (build_if
@@ -65,3 +75,171 @@
    (= %{system} "macosx")))
  (action
   (run cc -gdwarf-5 %{deps} -o %{target})))
+
+; FAT binary testing - compare our tools with system tools
+
+(rule
+ (target xcrun.otool-f.expected)
+ (enabled_if
+  (and
+   (= %{system} "macosx")
+   (= %{architecture} "arm64")))
+ (action
+  (with-stdout-to
+   %{target}
+   (run otool -f /usr/bin/xcrun))))
+
+(rule
+ (target xcrun.otool-f.output)
+ (deps %{bin:octool})
+ (enabled_if
+  (and
+   (= %{system} "macosx")
+   (= %{architecture} "arm64")))
+ (action
+  (with-stdout-to
+   %{target}
+   (run %{bin:octool} -f /usr/bin/xcrun))))
+
+(rule
+ (alias runtest)
+ (enabled_if
+  (and
+   (= %{system} "macosx")
+   (= %{architecture} "arm64")))
+ (action
+  (diff xcrun.otool-f.expected xcrun.otool-f.output)))
+
+(rule
+ (target xcrun.lipo-info.expected)
+ (enabled_if
+  (and
+   (= %{system} "macosx")
+   (= %{architecture} "arm64")))
+ (action
+  (with-stdout-to
+   %{target}
+   (run lipo -info /usr/bin/xcrun))))
+
+(rule
+ (target xcrun.lipo-info.output)
+ (deps %{bin:oclipo})
+ (enabled_if
+  (and
+   (= %{system} "macosx")
+   (= %{architecture} "arm64")))
+ (action
+  (with-stdout-to
+   %{target}
+   (run %{bin:oclipo} --info /usr/bin/xcrun))))
+
+(rule
+ (alias runtest)
+ (enabled_if
+  (and
+   (= %{system} "macosx")
+   (= %{architecture} "arm64")))
+ (action
+  (diff xcrun.lipo-info.expected xcrun.lipo-info.output)))
+
+(rule
+ (target xcrun.lipo-archs.expected)
+ (enabled_if
+  (and
+   (= %{system} "macosx")
+   (= %{architecture} "arm64")))
+ (action
+  (with-stdout-to
+   %{target}
+   (run lipo -archs /usr/bin/xcrun))))
+
+(rule
+ (target xcrun.lipo-archs.output)
+ (deps %{bin:oclipo})
+ (enabled_if
+  (and
+   (= %{system} "macosx")
+   (= %{architecture} "arm64")))
+ (action
+  (with-stdout-to
+   %{target}
+   (run %{bin:oclipo} --archs /usr/bin/xcrun))))
+
+(rule
+ (alias runtest)
+ (enabled_if
+  (and
+   (= %{system} "macosx")
+   (= %{architecture} "arm64")))
+ (action
+  (diff xcrun.lipo-archs.expected xcrun.lipo-archs.output)))
+
+(rule
+ (target xcrun.lipo-verify_arch.expected)
+ (enabled_if
+  (and
+   (= %{system} "macosx")
+   (= %{architecture} "arm64")))
+ (action
+  (with-stdout-to
+   %{target}
+   (run lipo /usr/bin/xcrun -verify_arch x86_64 arm64e))))
+
+(rule
+ (target xcrun.lipo-verify_arch.output)
+ (deps %{bin:oclipo})
+ (enabled_if
+  (and
+   (= %{system} "macosx")
+   (= %{architecture} "arm64")))
+ (action
+  (with-stdout-to
+   %{target}
+   (run
+    %{bin:oclipo}
+    --verify_arch
+    x86_64
+    --verify_arch
+    arm64e
+    /usr/bin/xcrun))))
+
+(rule
+ (alias runtest)
+ (enabled_if
+  (and
+   (= %{system} "macosx")
+   (= %{architecture} "arm64")))
+ (action
+  (diff xcrun.lipo-verify_arch.expected xcrun.lipo-verify_arch.output)))
+
+(rule
+ (target xcrun.file.expected)
+ (enabled_if
+  (and
+   (= %{system} "macosx")
+   (= %{architecture} "arm64")))
+ (action
+  (with-stdout-to
+   %{target}
+   (run file /usr/bin/xcrun))))
+
+(rule
+ (target xcrun.file.output)
+ (deps %{bin:file})
+ (enabled_if
+  (and
+   (= %{system} "macosx")
+   (= %{architecture} "arm64")))
+ (action
+  (with-stdout-to
+   %{target}
+   (run %{bin:file} /usr/bin/xcrun))))
+
+(rule
+ (alias runtest)
+ (enabled_if
+  (and
+   (= %{system} "macosx")
+   (= %{architecture} "arm64")))
+ (action
+  (diff xcrun.file.expected xcrun.file.output)))
