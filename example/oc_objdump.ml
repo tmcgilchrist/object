@@ -1,24 +1,13 @@
 (** OCaml implementation of objdump for MachO binaries. should be equivalent to
 
     objdump --section-headers <binaries> *)
-let cpu_type_to_string = function
-  | `X86 -> "x86_32"
-  | `X86_64 -> "x86_64"
-  | `ARM -> "arm32"
-  | `ARM64 -> "arm64"
-  | `POWERPC -> "ppc32"
-  | `POWERPC64 -> "ppc64"
-  | _unknown -> "unknown"
-
-let print_summary file (header : Object.Macho.header) =
-  Printf.printf "\n%s:\tfile format mach-o %s\n\n" file
-    (cpu_type_to_string header.cpu_type)
 
 let print_section_headers file =
   let open Printf in
   let buffer = Object.Buffer.parse file in
   let header, commands = Object.Macho.read buffer in
-  print_summary file header;
+  Printf.printf "\n%s:\tfile format mach-o %s\n\n" file
+    (Object.Macho.cpu_type_to_string header.cpu_type);
   printf "Sections:\n";
   printf "%3s %-13s %-8s %-16s %s\n" "Idx" "Name" "Size" "VMA" "Type";
 

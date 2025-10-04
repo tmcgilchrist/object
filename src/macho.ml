@@ -84,6 +84,16 @@ let cpu_type_to_int = function
   | `POWERPC64 -> 0x01000012
   | `Unknown n -> n
 
+let cpu_type_to_string = function
+  | `X86 -> "i386"
+  | `X86_64 -> "x86_64"
+  | `ARM -> "arm"
+  | `ARM64 -> "arm64"
+  | `ARM64_32 -> "arm64_32"
+  | `POWERPC -> "ppc"
+  | `POWERPC64 -> "ppc64"
+  | `Unknown n -> Printf.sprintf "unknown(%d)" n
+
 let cpu_subtype_to_int ty subtype =
   match (ty, subtype) with
   | `X86_64, `X86_64_ALL -> 3

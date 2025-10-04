@@ -95,6 +95,10 @@ val cpu_type_to_int : cpu_type -> int
 (** [cpu_type_to_int cpu_type] converts a CPU type to its integer
     representation. *)
 
+val cpu_type_to_string : cpu_type -> string
+(** [cpu_type_to_string cpu_type] converts a CPU type to its string
+    representation (e.g., "i386", "x86_64", "arm64"). *)
+
 val cpu_subtype_to_int : cpu_type -> cpu_subtype -> int
 (** [cpu_subtype_to_int cpu_type cpu_subtype] converts a CPU subtype to its
     integer representation. The cpu_type is needed for context-dependent subtype

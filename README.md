@@ -35,7 +35,7 @@ And add `object` to your project's `dune-project` or `*.opam` files.
  * Documentation on [ocaml.org](https://ocaml.org/p/object)
  * Example programs in `example` directory
    - A simple [file](./example/ocfile.ml) implementation that checks for MAGIC numbers
-   - A simple [objdump](./example/objdump.ml) implementation for displaying the section headers.
+   - A simple [objdump](./example/oc_objdump.ml) implementation for displaying the section headers.
    - Implementation of [nm](./example/ocnm.ml) to display name list (aka symbol table).
    - Implementation of [otool](./example/octool.ml) the object file displaying tool for MachO binaries
    - Implementation of [lipo](./example/oclipo.ml) for creating or operating on universal files (aka FAT binaries).
