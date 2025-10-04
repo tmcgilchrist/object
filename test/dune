@@ -243,3 +243,35 @@
    (= %{architecture} "arm64")))
  (action
   (diff xcrun.file.expected xcrun.file.output)))
+
+(rule
+ (target xcrun.otool-l.expected)
+ (enabled_if
+  (and
+   (= %{system} "macosx")
+   (= %{architecture} "arm64")))
+ (action
+  (with-stdout-to
+   %{target}
+   (run otool -l /usr/bin/xcrun))))
+
+(rule
+ (target xcrun.otool-l.output)
+ (deps %{bin:octool})
+ (enabled_if
+  (and
+   (= %{system} "macosx")
+   (= %{architecture} "arm64")))
+ (action
+  (with-stdout-to
+   %{target}
+   (run %{bin:octool} -l /usr/bin/xcrun))))
+
+(rule
+ (alias runtest)
+ (enabled_if
+  (and
+   (= %{system} "macosx")
+   (= %{architecture} "arm64")))
+ (action
+  (diff xcrun.otool-l.expected xcrun.otool-l.output)))

@@ -74,6 +74,26 @@ type cpu_subtype =
   | `ARM_V8
   | unknown ]
 
+let cpu_type_to_int = function
+  | `X86 -> 7
+  | `X86_64 -> 0x01000007
+  | `ARM -> 12
+  | `ARM64 -> 0x0100000c
+  | `ARM64_32 -> 0x0200000c
+  | `POWERPC -> 18
+  | `POWERPC64 -> 0x01000012
+  | `Unknown n -> n
+
+let cpu_subtype_to_int ty subtype =
+  match (ty, subtype) with
+  | `X86_64, `X86_64_ALL -> 3
+  | `ARM64, `ARM_ALL -> 0
+  | `ARM64, `ARM_V8 -> 1
+  | `ARM, `ARM_V7 -> 9
+  | `Unknown _, `Unknown n -> n
+  | _, `Unknown n -> n
+  | _, _ -> 0
+
 type file_type =
   [ `OBJECT
   | `EXECUTE
@@ -243,6 +263,26 @@ type sec_type =
     `S_LAZY_DYLIB_SYMBOL_POINTERS
   | unknown ]
 
+let sec_type_to_int = function
+  | `S_REGULAR -> 0x0
+  | `S_ZEROFILL -> 0x1
+  | `S_CSTRING_LITERALS -> 0x2
+  | `S_4BYTE_LITERALS -> 0x3
+  | `S_8BYTE_LITERALS -> 0x4
+  | `S_LITERAL_POINTERS -> 0x5
+  | `S_NON_LAZY_SYMBOL_POINTERS -> 0x6
+  | `S_LAZY_SYMBOL_POINTERS -> 0x7
+  | `S_SYMBOL_STUBS -> 0x8
+  | `S_MOD_INIT_FUNC_POINTERS -> 0x9
+  | `S_MOD_TERM_FUNC_POINTERS -> 0xa
+  | `S_COALESCED -> 0xb
+  | `S_GB_ZEROFILL -> 0xc
+  | `S_INTERPOSING -> 0xd
+  | `S_16BYTE_LITERALS -> 0xe
+  | `S_DTRACE_DOF -> 0xf
+  | `S_LAZY_DYLIB_SYMBOL_POINTERS -> 0x10
+  | `Unknown n -> n
+
 type sec_user_attr =
   [ (* section contains only true machine instructions *)
     `PURE_INSTRUCTIONS
@@ -267,6 +307,32 @@ type sec_sys_attr =
   | (* section has local relocation entries *)
     `LOC_RELOC ]
 
+let sec_user_attrs_to_int attrs =
+  List.fold_left
+    (fun acc attr ->
+      acc
+      lor
+      match attr with
+      | `PURE_INSTRUCTIONS -> 0x80000000
+      | `NO_TOC -> 0x40000000
+      | `STRIP_STATIC_SYMS -> 0x20000000
+      | `NO_DEAD_STRIP -> 0x10000000
+      | `LIVE_SUPPORT -> 0x08000000
+      | `SELF_MODIFYING_CODE -> 0x04000000
+      | `DEBUG -> 0x02000000)
+    0 attrs
+
+let sec_sys_attrs_to_int attrs =
+  List.fold_left
+    (fun acc attr ->
+      acc
+      lor
+      match attr with
+      | `SOME_INSTRUCTIONS -> 0x00000400
+      | `EXT_RELOC -> 0x00000200
+      | `LOC_RELOC -> 0x00000100)
+    0 attrs
+
 type section = {
   (* name of section *)
   sec_sectname : string;
@@ -288,16 +354,42 @@ type section = {
   sec_user_attrs : sec_user_attr list;
   (* system attibutes of section *)
   sec_sys_attrs : sec_sys_attr list;
+  (* reserved fields *)
+  sec_reserved1 : u32;
+  sec_reserved2 : u32;
 }
 
 type vm_prot = [ `READ | `WRITE | `EXECUTE ]
 
+let vm_prot_to_int prots =
+  let r = if List.mem `READ prots then 1 else 0 in
+  let w = if List.mem `WRITE prots then 2 else 0 in
+  let x = if List.mem `EXECUTE prots then 4 else 0 in
+  r lor w lor x
+
 type seg_flag =
   [ `HIGHVM
     (* The file contents for this segment is for the high part of the VM space, the low part is zero filled (for stacks in core files). *)
+  | `FVMLIB
+    (* This segment is the VM that is allocated by a fixed VM library, for overlap checking in the link editor. *)
   | `NORELOC
     (* This segment has nothing that was relocated in it and nothing relocated to it, that is it may be safely replaced without relocation. *)
-  ]
+  | `PROTECTED_VERSION_1
+    (* This segment is protected. If the segment starts at file offset 0, the first page of the segment is not protected. All other pages of the segment are protected. *)
+  | `READ_ONLY (* This segment is made read-only after fixups. *) ]
+
+let seg_flags_to_int flags =
+  List.fold_left
+    (fun acc flag ->
+      acc
+      lor
+      match flag with
+      | `HIGHVM -> 0x1
+      | `FVMLIB -> 0x2
+      | `NORELOC -> 0x4
+      | `PROTECTED_VERSION_1 -> 0x8
+      | `READ_ONLY -> 0x10)
+    0 flags
 
 (* TODO Should there be 64 and 32 bit versions of this? *)
 type segment = {
@@ -495,24 +587,39 @@ type dylib_module = {
 
 type toc_entry = { symbol_index : u32; module_index : u32 }
 
+type symbol_table = {
+  symoff : u32;
+  nsyms : u32;
+  stroff : u32;
+  strsize : u32;
+  symbols : symbol array;
+  strings : Buffer.t;
+}
+
 type dynamic_symbol_table = {
-  (*  symbol table index and count for local symbols *)
-  local_syms : u32 * u32;
-  (*  symbol table index and count for externally defined symbols *)
-  ext_def_syms : u32 * u32;
-  (*  symbol table index and count for undefined symbols *)
-  undef_syms : u32 * u32;
-  (*  list of symbol index and module index pairs *)
+  ilocalsym : u32;
+  nlocalsym : u32;
+  iextdefsym : u32;
+  nextdefsym : u32;
+  iundefsym : u32;
+  nundefsym : u32;
+  tocoff : u32;
+  ntoc : u32;
+  modtaboff : u32;
+  nmodtab : u32;
+  extrefsymoff : u32;
+  nextrefsyms : u32;
+  indirectsymoff : u32;
+  nindirectsyms : u32;
+  extreloff : u32;
+  nextrel : u32;
+  locreloff : u32;
+  nlocrel : u32;
   toc_entries : toc_entry array;
-  (*  modules *)
   modules : dylib_module array;
-  (*  list of external reference symbol indices *)
   ext_ref_syms : u32 array;
-  (*  list of indirect symbol indices *)
   indirect_syms : u32 array;
-  (*  external locations *)
   ext_rels : relocation array;
-  (*  local relocations *)
   loc_rels : relocation array;
 }
 
@@ -523,11 +630,20 @@ type dylib = {
   dylib_compatibility_version : u32;
 }
 
+type build_tool = { tool : u32; version : u32 }
+
+type build_version_info = {
+  platform : u32;
+  minos : u32;
+  sdk : u32;
+  tools : build_tool array;
+}
+
 type command =
   (* segment of this file to be mapped *)
   | LC_SEGMENT_32 of segment lazy_t
   (* static link-edit symbol table and stab info *)
-  | LC_SYMTAB of (symbol array * Buffer.t) lazy_t
+  | LC_SYMTAB of symbol_table lazy_t
   (* thread state information (list of (flavor, [long]) pairs) *)
   | LC_THREAD of (u32 * u32 array) list lazy_t
   (* unix thread state information (includes a stack) (list of (flavor, [long] pairs) *)
@@ -572,7 +688,55 @@ type command =
   | LC_CODE_SIGNATURE of u32 * u32
   (* local of info to split segments *)
   | LC_SEGMENT_SPLIT_INFO of u32 * u32
+  (* entry point for main thread (entryoff, stacksize) *)
+  | LC_MAIN of u64 * u64
+  (* source version used to build binary *)
+  | LC_SOURCE_VERSION of u64
+  (* build for platform min OS version *)
+  | LC_BUILD_VERSION of build_version_info lazy_t
+  (* compressed table of function start addresses *)
+  | LC_FUNCTION_STARTS of u32 * u32
+  (* table of non-instructions in __text *)
+  | LC_DATA_IN_CODE of u32 * u32
+  (* compressed exports trie *)
+  | LC_DYLD_EXPORTS_TRIE of u32 * u32
+  (* chained fixups *)
+  | LC_DYLD_CHAINED_FIXUPS of u32 * u32
   | LC_UNHANDLED of int * Buffer.t
+
+let command_name = function
+  | LC_SEGMENT_32 _ -> "LC_SEGMENT"
+  | LC_SYMTAB _ -> "LC_SYMTAB"
+  | LC_THREAD _ -> "LC_THREAD"
+  | LC_UNIXTHREAD _ -> "LC_UNIXTHREAD"
+  | LC_DYSYMTAB _ -> "LC_DYSYMTAB"
+  | LC_LOAD_DYLIB _ -> "LC_LOAD_DYLIB"
+  | LC_ID_DYLIB _ -> "LC_ID_DYLIB"
+  | LC_LOAD_DYLINKER _ -> "LC_LOAD_DYLINKER"
+  | LC_ID_DYLINKER _ -> "LC_ID_DYLINKER"
+  | LC_PREBOUND_DYLIB _ -> "LC_PREBOUND_DYLIB"
+  | LC_ROUTINES_32 _ -> "LC_ROUTINES"
+  | LC_SUB_FRAMEWORK _ -> "LC_SUB_FRAMEWORK"
+  | LC_SUB_UMBRELLA _ -> "LC_SUB_UMBRELLA"
+  | LC_SUB_CLIENT _ -> "LC_SUB_CLIENT"
+  | LC_SUB_LIBRARY _ -> "LC_SUB_LIBRARY"
+  | LC_TWOLEVEL_HINTS _ -> "LC_TWOLEVEL_HINTS"
+  | LC_PREBIND_CKSUM _ -> "LC_PREBIND_CKSUM"
+  | LC_LOAD_WEAK_DYLIB _ -> "LC_LOAD_WEAK_DYLIB"
+  | LC_SEGMENT_64 _ -> "LC_SEGMENT_64"
+  | LC_ROUTINES_64 _ -> "LC_ROUTINES_64"
+  | LC_UUID _ -> "LC_UUID"
+  | LC_RPATH _ -> "LC_RPATH"
+  | LC_CODE_SIGNATURE _ -> "LC_CODE_SIGNATURE"
+  | LC_SEGMENT_SPLIT_INFO _ -> "LC_SEGMENT_SPLIT_INFO"
+  | LC_MAIN _ -> "LC_MAIN"
+  | LC_SOURCE_VERSION _ -> "LC_SOURCE_VERSION"
+  | LC_BUILD_VERSION _ -> "LC_BUILD_VERSION"
+  | LC_FUNCTION_STARTS _ -> "LC_FUNCTION_STARTS"
+  | LC_DATA_IN_CODE _ -> "LC_DATA_IN_CODE"
+  | LC_DYLD_EXPORTS_TRIE _ -> "LC_DYLD_EXPORTS_TRIE"
+  | LC_DYLD_CHAINED_FIXUPS _ -> "LC_DYLD_CHAINED_FIXUPS"
+  | LC_UNHANDLED (cmd_num, _) -> Printf.sprintf "0x%x" cmd_num
 
 let reloc_type cpu_type n =
   match (cpu_type, n) with
@@ -956,9 +1120,24 @@ let read_dynamic_symbol_table header t buf =
       (Unsigned.UInt32.to_int nlocrel)
   in
   {
-    local_syms = (ilocalsym, nlocalsym);
-    ext_def_syms = (iextdefsym, nextdefsym);
-    undef_syms = (iundefsym, nundefsym);
+    ilocalsym;
+    nlocalsym;
+    iextdefsym;
+    nextdefsym;
+    iundefsym;
+    nundefsym;
+    tocoff;
+    ntoc;
+    modtaboff;
+    nmodtab;
+    extrefsymoff;
+    nextrefsyms;
+    indirectsymoff;
+    nindirectsyms;
+    extreloff;
+    nextrel;
+    locreloff;
+    nlocrel;
     toc_entries;
     modules;
     ext_ref_syms;
@@ -996,17 +1175,18 @@ let sec_type flags =
 let sec_user_attr n =
   decode_flags n []
     [
-      (30, `PURE_INSTRUCTIONS);
-      (29, `NO_TOC);
-      (28, `STRIP_STATIC_SYMS);
-      (27, `NO_DEAD_STRIP);
-      (26, `LIVE_SUPPORT);
-      (25, `SELF_MODIFYING_CODE);
+      (31, `PURE_INSTRUCTIONS);
+      (30, `NO_TOC);
+      (29, `STRIP_STATIC_SYMS);
+      (28, `NO_DEAD_STRIP);
+      (27, `LIVE_SUPPORT);
+      (26, `SELF_MODIFYING_CODE);
+      (25, `DEBUG);
     ]
 
 let sec_sys_attr n =
   decode_flags n []
-    [ (7, `LOC_RELOC); (8, `EXT_RELOC); (9, `SOME_INSTRUCTIONS) ]
+    [ (8, `LOC_RELOC); (9, `EXT_RELOC); (10, `SOME_INSTRUCTIONS) ]
 
 let read_section_32 header buf t =
   let sec_sectname = fixed_0_string t 16 in
@@ -1023,8 +1203,8 @@ let read_section_32 header buf t =
       (Unsigned.UInt32.to_int nreloc)
   in
   let flags = Read.u32 t in
-  let _reserved = Read.u32 t in
-  let _reserved = Read.u32 t in
+  let sec_reserved1 = Read.u32 t in
+  let sec_reserved2 = Read.u32 t in
   let sec_type = sec_type (Unsigned.UInt32.to_int flags) in
   let sec_user_attrs = sec_user_attr (Unsigned.UInt32.to_int flags) in
   let sec_sys_attrs = sec_sys_attr (Unsigned.UInt32.to_int flags) in
@@ -1039,6 +1219,8 @@ let read_section_32 header buf t =
     sec_type;
     sec_user_attrs;
     sec_sys_attrs;
+    sec_reserved1;
+    sec_reserved2;
   }
 
 let read_vm_prot t =
@@ -1051,7 +1233,13 @@ let read_seg_flag t =
   decode_flags
     (Unsigned.UInt32.to_int (Read.u32 t))
     []
-    [ (0, `HIGHVM); (2, `NORELOC) ]
+    [
+      (0, `HIGHVM);
+      (1, `FVMLIB);
+      (2, `NORELOC);
+      (3, `PROTECTED_VERSION_1);
+      (4, `READ_ONLY);
+    ]
 
 let read_segment_32 header buf t =
   let seg_segname = fixed_0_string t 16 in
@@ -1101,8 +1289,8 @@ let read_section_64 header buf t =
       (Unsigned.UInt32.to_int nreloc)
   in
   let flags = Read.u32 t in
-  let _reserved = Read.u32 t in
-  let _reserved = Read.u32 t in
+  let sec_reserved1 = Read.u32 t in
+  let sec_reserved2 = Read.u32 t in
   let _reserved = Read.u32 t in
   let sec_type = sec_type (Unsigned.UInt32.to_int flags) in
   let user_attrs = sec_user_attr (Unsigned.UInt32.to_int flags) in
@@ -1118,6 +1306,8 @@ let read_section_64 header buf t =
     sec_type;
     sec_user_attrs = user_attrs;
     sec_sys_attrs = sys_attrs;
+    sec_reserved1;
+    sec_reserved2;
   }
 
 let read_segment_64 header buf t =
@@ -1167,7 +1357,7 @@ let read_routines_command_64 t =
   let _reserved6 = Read.u64 t in
   LC_ROUTINES_64 (init_address, init_module)
 
-let read_uuid_command t = LC_UUID (Read.fixed_string t 8)
+let read_uuid_command t = LC_UUID (Read.fixed_string t 16)
 
 let read_rpath_command buf t =
   let offset = Read.u32 t in
@@ -1181,6 +1371,31 @@ let read_link_edit t k =
   let dataoff = Read.u32 t in
   let datasize = Read.u32 t in
   k dataoff datasize
+
+let read_main_command t =
+  let entryoff = Read.u64 t in
+  let stacksize = Read.u64 t in
+  LC_MAIN (entryoff, stacksize)
+
+let read_source_version_command t =
+  let version = Read.u64 t in
+  LC_SOURCE_VERSION version
+
+let read_build_version_command t =
+  let platform = Read.u32 t in
+  let minos = Read.u32 t in
+  let sdk = Read.u32 t in
+  let ntools = Read.u32 t in
+  let tools =
+    read_n_times
+      (fun t ->
+        let tool = Read.u32 t in
+        let version = Read.u32 t in
+        { tool; version })
+      t
+      (Unsigned.UInt32.to_int ntools)
+  in
+  LC_BUILD_VERSION (lazy { platform; minos; sdk; tools })
 
 let read_lc_string buf t =
   let offset = Read.u32 t in
@@ -1277,7 +1492,7 @@ let read_symbol_table header buf t =
       symcursor
       (Unsigned.UInt32.to_int nsyms)
   in
-  (symbols, strsect.buffer)
+  { symoff; nsyms; stroff; strsize; symbols; strings = strsect.buffer }
 
 let read_dylib_command t lc =
   let dylib_name = read_lc_string lc t in
@@ -1317,10 +1532,17 @@ let read_load_command header buf t =
   | 0x0000001b -> read_uuid_command t
   | 0x0000001d -> read_link_edit t (fun a b -> LC_CODE_SIGNATURE (a, b))
   | 0x0000001e -> read_link_edit t (fun a b -> LC_SEGMENT_SPLIT_INFO (a, b))
+  | 0x00000026 -> read_link_edit t (fun a b -> LC_FUNCTION_STARTS (a, b))
+  | 0x00000029 -> read_link_edit t (fun a b -> LC_DATA_IN_CODE (a, b))
+  | 0x0000002a -> read_source_version_command t
+  | 0x00000032 -> read_build_version_command t
   | 0x0000000c -> LC_LOAD_DYLIB (lazy (read_dylib_command t t.buffer))
   | 0x0000000d -> LC_ID_DYLIB (lazy (read_dylib_command t t.buffer))
   | 0x80000018 -> LC_LOAD_WEAK_DYLIB (lazy (read_dylib_command t t.buffer))
   | 0x8000001c -> read_rpath_command buf t
+  | 0x80000028 -> read_main_command t
+  | 0x80000033 -> read_link_edit t (fun a b -> LC_DYLD_EXPORTS_TRIE (a, b))
+  | 0x80000034 -> read_link_edit t (fun a b -> LC_DYLD_CHAINED_FIXUPS (a, b))
   | n -> LC_UNHANDLED (n, t.buffer)
 
 let rec read_load_commands header buf t =
@@ -1364,6 +1586,12 @@ let get_section_contents buffer section_name =
 (* FAT/Universal Binary Support *)
 
 type fat_magic = FAT_MAGIC | FAT_CIGAM | FAT_MAGIC_64 | FAT_CIGAM_64
+
+let fat_magic_to_int = function
+  | FAT_MAGIC -> 0xcafebabe
+  | FAT_CIGAM -> 0xbebafeca
+  | FAT_MAGIC_64 -> 0xcafebabf
+  | FAT_CIGAM_64 -> 0xbfbafeca
 
 type fat_arch = {
   fa_cputype : cpu_type;

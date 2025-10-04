@@ -189,8 +189,8 @@ let process_macho_file filename show_all preserve_order =
     let symbols = ref [] in
     List.iter
       (function
-        | Macho.LC_SYMTAB (lazy (symbol_array, _)) ->
-            symbols := Array.to_list symbol_array @ !symbols
+        | Macho.LC_SYMTAB (lazy st) ->
+            symbols := Array.to_list st.symbols @ !symbols
         | _ -> ())
       commands;
 

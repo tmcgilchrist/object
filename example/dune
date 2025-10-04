@@ -1,4 +1,4 @@
 (executables
- (public_names objdump generic_objdump nm octool oclipo ocfile)
- (names objdump generic_objdump nm octool oclipo ocfile)
+ (public_names objdump generic_objdump ocnm octool oclipo ocfile)
+ (names objdump generic_objdump ocnm octool oclipo ocfile)
  (libraries integers object unix cmdliner))

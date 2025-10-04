@@ -22,11 +22,7 @@ let print_detailed_info filename buffer =
     let nfat_arch = Array.length fat_header.fat_archs in
     Printf.printf "Fat header in: %s\n" filename;
     Printf.printf "fat_magic 0x%x\n"
-      (match fat_header.fat_magic with
-      | Macho.FAT_MAGIC -> 0xcafebabe
-      | Macho.FAT_CIGAM -> 0xbebafeca
-      | Macho.FAT_MAGIC_64 -> 0xcafebabf
-      | Macho.FAT_CIGAM_64 -> 0xbfbafeca);
+      (Macho.fat_magic_to_int fat_header.fat_magic);
     Printf.printf "nfat_arch %d\n" nfat_arch;
     Array.iter
       (fun arch ->
