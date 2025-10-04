@@ -91,6 +91,19 @@ type cpu_subtype =
     family. Includes various Intel processors, PowerPC variants, ARM versions,
     and unknown types. *)
 
+val cpu_type_to_int : cpu_type -> int
+(** [cpu_type_to_int cpu_type] converts a CPU type to its integer
+    representation. *)
+
+val cpu_type_to_string : cpu_type -> string
+(** [cpu_type_to_string cpu_type] converts a CPU type to its string
+    representation (e.g., "i386", "x86_64", "arm64"). *)
+
+val cpu_subtype_to_int : cpu_type -> cpu_subtype -> int
+(** [cpu_subtype_to_int cpu_type cpu_subtype] converts a CPU subtype to its
+    integer representation. The cpu_type is needed for context-dependent subtype
+    values. *)
+
 type file_type =
   [ `OBJECT
   | `EXECUTE
@@ -314,10 +327,24 @@ type section = {
   sec_type : sec_type;  (** Type of section *)
   sec_user_attrs : sec_user_attr list;  (** User attributes of section *)
   sec_sys_attrs : sec_sys_attr list;  (** System attributes of section *)
+  sec_reserved1 : u32;  (** Reserved field 1 *)
+  sec_reserved2 : u32;  (** Reserved field 2 *)
 }
 (** A section within a segment, containing code or data with specific attributes
     and relocations. Sections are the finest granularity of organization within
     Mach-O files. *)
+
+val sec_type_to_int : sec_type -> int
+(** [sec_type_to_int sec_type] converts a section type to its integer
+    representation as used in Mach-O section headers. *)
+
+val sec_user_attrs_to_int : sec_user_attr list -> int
+(** [sec_user_attrs_to_int attrs] converts section user attributes to their
+    combined integer representation. *)
+
+val sec_sys_attrs_to_int : sec_sys_attr list -> int
+(** [sec_sys_attrs_to_int attrs] converts section system attributes to their
+    combined integer representation. *)
 
 type vm_prot = [ `READ | `WRITE | `EXECUTE ]
 (** Virtual memory protection flags controlling access permissions for segments
@@ -328,7 +355,11 @@ type seg_flag =
     (* The file contents for this segment is for the high part of the VM space, the low part is zero filled (for stacks in core files). *)
   | `NORELOC
     (* This segment has nothing that was relocated in it and nothing relocated to it, that is it may be safely replaced without relocation. *)
-  ]
+  | `FVMLIB
+    (* This segment is the VM that is allocated by a fixed VM library, for overlap checking in the link editor. *)
+  | `PROTECTED_VERSION_1
+    (* This segment is protected. If the segment starts at file offset 0, the first page of the segment is not protected. All other pages of the segment are protected. *)
+  | `READ_ONLY (* This segment is made read-only after fixups. *) ]
 (** Segment flags controlling special handling of segment contents and
     relocations. *)
 
@@ -346,6 +377,14 @@ type segment = {
 (** A segment containing one or more sections, representing a contiguous range
     of virtual memory that is mapped from the file during loading. Segments
     define memory protection and layout. *)
+
+val vm_prot_to_int : vm_prot list -> int
+(** [vm_prot_to_int prots] converts virtual memory protection flags to their
+    combined integer representation. *)
+
+val seg_flags_to_int : seg_flag list -> int
+(** [seg_flags_to_int flags] converts segment flags to their combined integer
+    representation. *)
 
 type sym_type =
   [ (* undefined symbol, n_sect is 0 *)
@@ -501,19 +540,41 @@ type toc_entry = {
 }
 (** Table of contents entry mapping symbols to their defining modules. *)
 
+type symbol_table = {
+  symoff : u32;  (** Symbol table offset *)
+  nsyms : u32;  (** Number of symbols *)
+  stroff : u32;  (** String table offset *)
+  strsize : u32;  (** String table size *)
+  symbols : symbol array;  (** Parsed symbols *)
+  strings : Buffer.t;  (** String table buffer *)
+}
+(** Symbol table command containing symbol and string table information. *)
+
 type dynamic_symbol_table = {
-  local_syms : u32 * u32;  (** Symbol table index and count for local symbols *)
-  ext_def_syms : u32 * u32;
-      (** Symbol table index and count for externally defined symbols *)
-  undef_syms : u32 * u32;
-      (** Symbol table index and count for undefined symbols *)
-  toc_entries : toc_entry array;
-      (** List of symbol index and module index pairs *)
-  modules : dylib_module array;  (** Modules *)
-  ext_ref_syms : u32 array;  (** List of external reference symbol indices *)
-  indirect_syms : u32 array;  (** List of indirect symbol indices *)
-  ext_rels : relocation array;  (** External relocations *)
-  loc_rels : relocation array;  (** Local relocations *)
+  ilocalsym : u32;  (** Index of first local symbol *)
+  nlocalsym : u32;  (** Number of local symbols *)
+  iextdefsym : u32;  (** Index of first external defined symbol *)
+  nextdefsym : u32;  (** Number of external defined symbols *)
+  iundefsym : u32;  (** Index of first undefined symbol *)
+  nundefsym : u32;  (** Number of undefined symbols *)
+  tocoff : u32;  (** Table of contents offset *)
+  ntoc : u32;  (** Number of table of contents entries *)
+  modtaboff : u32;  (** Module table offset *)
+  nmodtab : u32;  (** Number of module table entries *)
+  extrefsymoff : u32;  (** External reference symbol table offset *)
+  nextrefsyms : u32;  (** Number of external reference symbols *)
+  indirectsymoff : u32;  (** Indirect symbol table offset *)
+  nindirectsyms : u32;  (** Number of indirect symbols *)
+  extreloff : u32;  (** External relocation table offset *)
+  nextrel : u32;  (** Number of external relocations *)
+  locreloff : u32;  (** Local relocation table offset *)
+  nlocrel : u32;  (** Number of local relocations *)
+  toc_entries : toc_entry array;  (** Parsed table of contents entries *)
+  modules : dylib_module array;  (** Parsed modules *)
+  ext_ref_syms : u32 array;  (** Parsed external reference symbols *)
+  indirect_syms : u32 array;  (** Parsed indirect symbols *)
+  ext_rels : relocation array;  (** Parsed external relocations *)
+  loc_rels : relocation array;  (** Parsed local relocations *)
 }
 (** Dynamic symbol table containing information needed for dynamic linking,
     including symbol organization and relocation data. *)
@@ -527,6 +588,17 @@ type dylib = {
 }
 (** Dynamic library information including name and version details. *)
 
+type build_tool = { tool : u32; version : u32 }
+(** Build tool information including tool type and version. *)
+
+type build_version_info = {
+  platform : u32;  (** Target platform *)
+  minos : u32;  (** Minimum OS version *)
+  sdk : u32;  (** SDK version used to build *)
+  tools : build_tool array;  (** Build tools used *)
+}
+(** Build version information for the binary. *)
+
 (** Load commands instruct the dynamic linker how to set up the process from the
     Mach-O file. Commands specify segments to load, libraries to link, symbols
     to resolve, and other setup tasks. Each command contains specific data
@@ -535,7 +607,7 @@ type command =
   (* segment of this file to be mapped *)
   | LC_SEGMENT_32 of segment lazy_t
   (* static link-edit symbol table and stab info *)
-  | LC_SYMTAB of (symbol array * Buffer.t) lazy_t
+  | LC_SYMTAB of symbol_table lazy_t
   (* thread state information (list of (flavor, [long]) pairs) *)
   | LC_THREAD of (u32 * u32 array) list lazy_t
   (* unix thread state information (includes a stack) (list of (flavor, [long] pairs) *)
@@ -580,14 +652,31 @@ type command =
   | LC_CODE_SIGNATURE of u32 * u32
   (* local of info to split segments *)
   | LC_SEGMENT_SPLIT_INFO of u32 * u32
+  (* entry point for main thread (entryoff, stacksize) *)
+  | LC_MAIN of u64 * u64
+  (* source version used to build binary *)
+  | LC_SOURCE_VERSION of u64
+  (* build for platform min OS version *)
+  | LC_BUILD_VERSION of build_version_info lazy_t
+  (* compressed table of function start addresses *)
+  | LC_FUNCTION_STARTS of u32 * u32
+  (* table of non-instructions in __text *)
+  | LC_DATA_IN_CODE of u32 * u32
+  (* compressed exports trie *)
+  | LC_DYLD_EXPORTS_TRIE of u32 * u32
+  (* chained fixups *)
+  | LC_DYLD_CHAINED_FIXUPS of u32 * u32
   | LC_UNHANDLED of int * Buffer.t
 
-val read_symbol_table :
-  header -> Buffer.t -> Buffer.cursor -> symbol array * Buffer.t
+val command_name : command -> string
+(** [command_name cmd] returns the load command name as a string (e.g.,
+    "LC_SEGMENT_64", "LC_SYMTAB"). *)
+
+val read_symbol_table : header -> Buffer.t -> Buffer.cursor -> symbol_table
 (** [read_symbol_table header buffer cursor] reads the symbol table from a
-    Mach-O LC_SYMTAB load command. Returns an array of symbols and the string
-    table buffer. The cursor should be positioned at the start of the symbol
-    table command data (after the standard load command header).
+    Mach-O LC_SYMTAB load command. Returns a symbol_table record with all symbol
+    and string table buffer. The cursor should be positioned at the start of the
+    symbol table command data (after the standard load command header).
 
     @param header The Mach-O header containing architecture information
     @param buffer The complete Mach-O file buffer
@@ -625,3 +714,112 @@ val get_section_contents : Buffer.t -> string -> Buffer.t option
 (** [get_section_contents buffer section_name] searches for a section with the
     given [section_name] in the Mach-O file and returns its contents as a
     buffer. Returns [None] if the section is not found. *)
+
+(** {1 FAT/Universal Binary Support} *)
+
+type fat_magic =
+  | FAT_MAGIC
+  | FAT_CIGAM
+  | FAT_MAGIC_64
+  | FAT_CIGAM_64
+      (** Magic numbers for FAT/Universal binaries.
+          - [FAT_MAGIC]: 32-bit FAT binary, big-endian (0xcafebabe)
+          - [FAT_CIGAM]: 32-bit FAT binary, byte-swapped (0xbebafeca)
+          - [FAT_MAGIC_64]: 64-bit FAT binary, big-endian (0xcafebabf)
+          - [FAT_CIGAM_64]: 64-bit FAT binary, byte-swapped (0xbfbafeca) *)
+
+val fat_magic_to_int : fat_magic -> int
+(** Convert a [fat_magic] value to its integer representation. *)
+
+type fat_arch = {
+  fa_cputype : cpu_type;  (** CPU type *)
+  fa_cpusubtype : cpu_subtype;  (** CPU subtype *)
+  fa_offset : u32;  (** File offset to this architecture's Mach-O *)
+  fa_size : u32;  (** Size of this architecture's Mach-O *)
+  fa_align : u32;  (** Alignment as a power of 2 *)
+}
+(** Architecture descriptor for 32-bit FAT binaries. Describes the location and
+    size of a single architecture's Mach-O binary within the FAT file. *)
+
+type fat_arch_64 = {
+  fa64_cputype : cpu_type;  (** CPU type *)
+  fa64_cpusubtype : cpu_subtype;  (** CPU subtype *)
+  fa64_offset : u64;  (** File offset to this architecture's Mach-O *)
+  fa64_size : u64;  (** Size of this architecture's Mach-O *)
+  fa64_align : u32;  (** Alignment as a power of 2 *)
+  fa64_reserved : u32;  (** Reserved, must be 0 *)
+}
+(** Architecture descriptor for 64-bit FAT binaries. Used when offsets or sizes
+    exceed 4GB (2^32 bytes). *)
+
+type fat_arch_any = [ `Fat_arch of fat_arch | `Fat_arch_64 of fat_arch_64 ]
+(** Union type for either 32-bit or 64-bit FAT architecture descriptor. *)
+
+type fat_header = {
+  fat_magic : fat_magic;  (** Magic number identifying FAT format *)
+  fat_archs : fat_arch_any array;  (** Array of architecture descriptors *)
+}
+(** FAT binary header containing magic number and all architecture descriptors.
+    FAT binaries are always stored in big-endian format. *)
+
+val is_fat : Buffer.t -> bool
+(** [is_fat buffer] checks if the buffer contains a FAT/Universal binary by
+    examining the magic number at the beginning of the buffer. *)
+
+val read_fat : Buffer.t -> fat_header
+(** [read_fat buffer] parses a FAT binary header from the buffer. The buffer
+    must point to the start of a FAT binary. Handles both 32-bit and 64-bit FAT
+    formats and performs byte-swapping if needed (FAT is always big-endian).
+
+    @raise Invalid_format if the buffer is not a valid FAT binary *)
+
+val extract_arch : Buffer.t -> fat_arch_any -> Buffer.t
+(** [extract_arch buffer arch] extracts a single architecture's Mach-O binary
+    from a FAT binary as a sub-buffer. The returned buffer can be passed to
+    [read] to parse the Mach-O contents.
+
+    @param buffer The complete FAT binary buffer
+    @param arch The architecture descriptor to extract
+    @return A sub-buffer containing just that architecture's Mach-O binary *)
+
+val arch_name : fat_arch_any -> string
+(** [arch_name arch] returns the architecture name as a string (e.g. "x86_64",
+    "arm64", "arm64e"). Handles special cases like ARM64E (subtype 2).
+
+    @param arch The architecture descriptor
+    @return Architecture name string *)
+
+val find_arch : fat_header -> string -> fat_arch_any option
+(** [find_arch fat_header arch_name] searches for an architecture by name in the
+    FAT header.
+
+    @param fat_header The FAT header to search
+    @param arch_name The architecture name to find (e.g. "x86_64", "arm64e")
+    @return Some arch if found, None otherwise *)
+
+val extract_arch_by_name : Buffer.t -> string -> Buffer.t option
+(** [extract_arch_by_name buffer arch_name] extracts a single architecture's
+    Mach-O binary by name from a FAT binary. Convenience function combining
+    [read_fat], [find_arch], and [extract_arch].
+
+    @param buffer The complete FAT binary buffer
+    @param arch_name The architecture name to extract
+    @return Some sub-buffer if architecture found, None otherwise *)
+
+(** {2 FAT Binary Validation} *)
+
+type fat_validation_error =
+  | Overlap of int * int * int * int
+      (** Architecture overlap: (offset1, size1, offset2, size2) *)
+  | Invalid_alignment of string * int * int
+      (** Invalid alignment: (arch_name, offset, align) *)
+  | Out_of_bounds of string * int * int * int
+      (** Out of bounds: (arch_name, offset, size, buffer_size) *)
+  | Invalid_arch_count of int  (** Invalid architecture count *)
+
+val validate_fat : Buffer.t -> (unit, fat_validation_error list) result
+(** [validate_fat buffer] validates a FAT binary for correctness. Checks for
+    overlapping architectures, proper alignment, and bounds.
+
+    @param buffer The FAT binary buffer to validate
+    @return Ok () if valid, Error list of validation errors otherwise *)

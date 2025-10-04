@@ -204,10 +204,16 @@ let test_load_commands hello_world_path =
     "has LC_UUID" true
     (List.exists (function LC_UUID _ -> true | _ -> false) commands);
 
-  (* Check that we have some unhandled commands (modern load commands) *)
+  (* Check that we have modern load commands *)
   Alcotest.(check bool)
-    "has LC_UNHANDLED commands" true
-    (List.exists (function LC_UNHANDLED _ -> true | _ -> false) commands)
+    "has LC_MAIN" true
+    (List.exists (function LC_MAIN _ -> true | _ -> false) commands);
+  Alcotest.(check bool)
+    "has LC_SOURCE_VERSION" true
+    (List.exists (function LC_SOURCE_VERSION _ -> true | _ -> false) commands);
+  Alcotest.(check bool)
+    "has LC_BUILD_VERSION" true
+    (List.exists (function LC_BUILD_VERSION _ -> true | _ -> false) commands)
 
 let test_symbol_table hello_world_path =
   let buffer = Buffer.parse hello_world_path in
@@ -216,8 +222,7 @@ let test_symbol_table hello_world_path =
   (* Extract symbol table command *)
   let symtab_opt =
     List.find_map
-      (function
-        | LC_SYMTAB (lazy (symbols, _strings)) -> Some symbols | _ -> None)
+      (function LC_SYMTAB (lazy st) -> Some st.symbols | _ -> None)
       commands
   in
 
