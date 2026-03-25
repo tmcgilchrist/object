@@ -12,13 +12,13 @@ For reading files the library provides various abstraction levels:
  * a higher level unified API for accessing common features of object files,
    such as sections and symbols
 
-Supported file formats for reading: ELF, Macho-O, Windows PE/COFF, and Unix Archive.
+Supported file formats for reading: ELF and Macho-O
 
 For writing files the library provides:
 
- * low level writers for ELF, Mach-O, and PE/COFF.
+ * low level writers for ELF, and Mach-O.
  * higher level builder for ELF
- * a unified API for writing relocatable object files (ELF, Mach-O, COFF)
+ * a unified API for writing relocatable object files (ELF, Mach-O)
 
 ## Install
 
@@ -39,6 +39,11 @@ And add `object` to your project's `dune-project` or `*.opam` files.
    - Implementation of [nm](./example/ocnm.ml) to display name list (aka symbol table).
    - Implementation of [otool](./example/octool.ml) the object file displaying tool for MachO binaries
    - Implementation of [lipo](./example/oclipo.ml) for creating or operating on universal files (aka FAT binaries).
+
+## Future
+
+ * Reading file formats: Windows PE/COFF, and Unix Archive.
+ * Writing PE/COFF files
 
 ## Prior work
 
