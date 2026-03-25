@@ -29,7 +29,7 @@ let ensure t count msg =
 let advance t count = t.position <- t.position + count
 let at_end t = size t.buffer = t.position
 
-open Types
+open Object_types
 
 (* All endian and bit-width dependent code starts here *)
 module Read = struct

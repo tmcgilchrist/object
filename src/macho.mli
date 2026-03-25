@@ -1,6 +1,6 @@
 (** MacOS Mach-O parser based on /usr/include/mach-o/* headers *)
 
-open Types
+open Object_types
 
 type magic =
   | MAGIC32
