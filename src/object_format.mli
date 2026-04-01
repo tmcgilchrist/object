@@ -1,4 +1,4 @@
-open Types
+open Object_types
 
 (** Generic abstraction over ELF and Mach-O object file formats *)
 

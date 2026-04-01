@@ -1,4 +1,4 @@
-open Types
+open Object_types
 
 type magic = MAGIC32 | MAGIC64 | CIGAM32 | CIGAM64
 

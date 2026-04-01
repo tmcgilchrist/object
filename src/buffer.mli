@@ -1,4 +1,4 @@
-open Types
+open Object_types
 
 (** Low-level buffer manipulation backed by [Bigarray.Array1.t]. *)
 

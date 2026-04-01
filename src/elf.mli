@@ -1,4 +1,4 @@
-open Types
+open Object_types
 
 (** Linux ELF parser based on /usr/include/elf.h *)
 

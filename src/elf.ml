@@ -1,4 +1,4 @@
-open Types
+open Object_types
 
 type elf_class =
   [ `ELFCLASSNONE (* Invalid class *)
