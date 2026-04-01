@@ -583,3 +583,155 @@ let section_contains_data section_header =
 
 let section_is_discardable section_header =
   section_has_characteristic section_header `IMAGE_SCN_MEM_DISCARDABLE
+
+let section_contents (buf : Buffer.t) (sh : section_header) : Buffer.t =
+  let offset = Unsigned.UInt32.to_int sh.pointer_to_raw_data in
+  let size = Unsigned.UInt32.to_int sh.size_of_raw_data in
+  Bigarray.Array1.sub buf offset size
+
+(** {2 Debug Directory}
+
+    The debug directory is found via the IMAGE_DIRECTORY_ENTRY_DEBUG data
+    directory entry. It contains entries describing debug information,
+    including the path to the PDB file. *)
+
+type debug_type =
+  | IMAGE_DEBUG_TYPE_UNKNOWN
+  | IMAGE_DEBUG_TYPE_COFF
+  | IMAGE_DEBUG_TYPE_CODEVIEW
+  | IMAGE_DEBUG_TYPE_FPO
+  | IMAGE_DEBUG_TYPE_MISC
+  | IMAGE_DEBUG_TYPE_EXCEPTION
+  | IMAGE_DEBUG_TYPE_FIXUP
+  | IMAGE_DEBUG_TYPE_BORLAND
+  | IMAGE_DEBUG_TYPE_REPRO
+  | IMAGE_DEBUG_TYPE_POGO
+  | IMAGE_DEBUG_TYPE_ILTCG
+  | IMAGE_DEBUG_TYPE_MPX
+  | IMAGE_DEBUG_TYPE_OTHER of int
+
+let debug_type_of_int = function
+  | 0 -> IMAGE_DEBUG_TYPE_UNKNOWN
+  | 1 -> IMAGE_DEBUG_TYPE_COFF
+  | 2 -> IMAGE_DEBUG_TYPE_CODEVIEW
+  | 3 -> IMAGE_DEBUG_TYPE_FPO
+  | 4 -> IMAGE_DEBUG_TYPE_MISC
+  | 5 -> IMAGE_DEBUG_TYPE_EXCEPTION
+  | 6 -> IMAGE_DEBUG_TYPE_FIXUP
+  | 9 -> IMAGE_DEBUG_TYPE_BORLAND
+  | 16 -> IMAGE_DEBUG_TYPE_REPRO
+  | 13 -> IMAGE_DEBUG_TYPE_POGO
+  | 14 -> IMAGE_DEBUG_TYPE_ILTCG
+  | 15 -> IMAGE_DEBUG_TYPE_MPX
+  | n -> IMAGE_DEBUG_TYPE_OTHER n
+
+type debug_directory_entry = {
+  characteristics : u32;
+  time_date_stamp : u32;
+  major_version : u16;
+  minor_version : u16;
+  debug_type : debug_type;
+  size_of_data : u32;
+  address_of_raw_data : u32;
+  pointer_to_raw_data : u32;
+}
+
+type codeview_info = {
+  cv_signature : string; (** "RSDS" for PDB 7.0 *)
+  guid : string; (** 16-byte GUID *)
+  age : u32;
+  pdb_path : string;
+}
+
+let parse_debug_directory (buf : Buffer.t) (pe_obj : pe_object) :
+    debug_directory_entry list =
+  match pe_obj.optional_header with
+  | None -> []
+  | Some opt -> (
+      match opt.data_directory.debug_data with
+      | None -> []
+      | Some dd ->
+          let rva = Unsigned.UInt32.to_int dd.virtual_address in
+          let size = Unsigned.UInt32.to_int dd.size in
+          if rva = 0 || size = 0 then []
+          else
+            (* Find which section contains this RVA *)
+            let file_offset =
+              let found = ref None in
+              Array.iter
+                (fun (sh : section_header) ->
+                  let sec_rva = Unsigned.UInt32.to_int sh.virtual_address in
+                  let sec_size = Unsigned.UInt32.to_int sh.virtual_size in
+                  if rva >= sec_rva && rva < sec_rva + sec_size then
+                    found :=
+                      Some
+                        (Unsigned.UInt32.to_int sh.pointer_to_raw_data + rva
+                       - sec_rva))
+                pe_obj.section_headers;
+              !found
+            in
+            (match file_offset with
+            | None -> []
+            | Some offset ->
+                let cursor = Buffer.cursor ~at:offset buf in
+                let entry_size = 28 in
+                let count = size / entry_size in
+                List.init count (fun _ ->
+                    let characteristics = Buffer.Read.u32 cursor in
+                    let time_date_stamp = Buffer.Read.u32 cursor in
+                    let major_version = Buffer.Read.u16 cursor in
+                    let minor_version = Buffer.Read.u16 cursor in
+                    let type_raw =
+                      Buffer.Read.u32 cursor |> Unsigned.UInt32.to_int
+                    in
+                    let debug_type = debug_type_of_int type_raw in
+                    let size_of_data = Buffer.Read.u32 cursor in
+                    let address_of_raw_data = Buffer.Read.u32 cursor in
+                    let pointer_to_raw_data = Buffer.Read.u32 cursor in
+                    {
+                      characteristics;
+                      time_date_stamp;
+                      major_version;
+                      minor_version;
+                      debug_type;
+                      size_of_data;
+                      address_of_raw_data;
+                      pointer_to_raw_data;
+                    })))
+
+let parse_codeview_info (buf : Buffer.t) (entry : debug_directory_entry) :
+    codeview_info option =
+  let offset = Unsigned.UInt32.to_int entry.pointer_to_raw_data in
+  let size = Unsigned.UInt32.to_int entry.size_of_data in
+  if offset = 0 || size < 24 then None
+  else
+    let cursor = Buffer.cursor ~at:offset buf in
+    let cv_signature = Buffer.Read.fixed_string cursor 4 in
+    if cv_signature = "RSDS" then
+      let guid = Buffer.Read.fixed_string cursor 16 in
+      let age = Buffer.Read.u32 cursor in
+      let remaining = size - 24 in
+      let pdb_path_raw = Buffer.Read.fixed_string cursor remaining in
+      (* Trim null terminator *)
+      let pdb_path =
+        match String.index_opt pdb_path_raw '\000' with
+        | Some i -> String.sub pdb_path_raw 0 i
+        | None -> pdb_path_raw
+      in
+      Some { cv_signature; guid; age; pdb_path }
+    else None
+
+let find_pdb_path (buf : Buffer.t) (pe_obj : pe_object) : string option =
+  let entries = parse_debug_directory buf pe_obj in
+  let codeview_entry =
+    List.find_opt
+      (fun e -> e.debug_type = IMAGE_DEBUG_TYPE_CODEVIEW)
+      entries
+  in
+  match codeview_entry with
+  | None -> None
+  | Some entry -> (
+      match parse_codeview_info buf entry with
+      | Some info -> Some info.pdb_path
+      | None -> None)
+
