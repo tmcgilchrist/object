@@ -5,7 +5,7 @@ exception Invalid_format of string
 type arch =
   [ `X86 | `X86_64 | `ARM | `ARM64 | `POWERPC | `POWERPC64 | `Unknown of int ]
 
-type format = ELF | MACHO
+type format = ELF | MACHO | PE
 
 type section = {
   name : string;
@@ -108,7 +108,7 @@ let macho_segment_to_generic (seg : Macho.segment) : segment =
   }
 
 (** Detect file format from buffer *)
-let detect_format (buf : Buffer.t) : format =
+let detect_format_internal (buf : Buffer.t) : format =
   let cursor = Buffer.cursor buf in
   let magic = Buffer.Read.u32 cursor in
   let magic_int = Unsigned.UInt32.to_int magic in
@@ -119,7 +119,9 @@ let detect_format (buf : Buffer.t) : format =
       MACHO (* Mach-O magics *)
   | 0xCAFEBABE | 0xBEBAFECA | 0xCAFEBABF | 0xBFBAFECA ->
       MACHO (* FAT/Universal binaries contain Mach-O *)
-  | _ -> failwith "Unsupported file format"
+  | _ ->
+      let magic16 = magic_int land 0xFFFF in
+      if magic16 = 0x5A4D then PE else failwith "Unsupported file format"
 
 (** Parse Mach-O file *)
 let parse_macho (buf : Buffer.t) : t =
@@ -216,9 +218,43 @@ let parse_elf (buf : Buffer.t) : t =
 
   { header = generic_header; segments; all_sections = generic_sections }
 
+(** Parse PE file *)
+let parse_pe (buf : Buffer.t) : t =
+  let pe_obj = Pe.read buf in
+  let generic_header =
+    {
+      format = PE;
+      architecture = (Pe.get_architecture pe_obj :> arch);
+      entry_point = Pe.entry_point pe_obj;
+      is_executable = Pe.is_executable pe_obj;
+      is_64bit = Pe.is_64bit pe_obj;
+    }
+  in
+  let generic_sections =
+    Array.map
+      (fun (sh : Pe.section_header) ->
+        {
+          name = sh.name;
+          size = Unsigned.UInt64.of_int (Unsigned.UInt32.to_int sh.virtual_size);
+          address =
+            Unsigned.UInt64.of_int (Unsigned.UInt32.to_int sh.virtual_address);
+          offset =
+            Some
+              (Unsigned.UInt64.of_int
+                 (Unsigned.UInt32.to_int sh.pointer_to_raw_data));
+          section_type =
+            Pe.section_characteristics_to_type_string sh.characteristics;
+        })
+      (Pe.sections pe_obj)
+  in
+  { header = generic_header; segments = [||]; all_sections = generic_sections }
+
 (** Main read function *)
 let read (buf : Buffer.t) : t =
-  match detect_format buf with ELF -> parse_elf buf | MACHO -> parse_macho buf
+  match detect_format_internal buf with
+  | ELF -> parse_elf buf
+  | MACHO -> parse_macho buf
+  | PE -> parse_pe buf
 
 let sections t = t.all_sections
 let segments t = t.segments
@@ -229,17 +265,13 @@ let find_section (t : t) name =
 let find_segment (t : t) name =
   Array.find_opt (fun (seg : segment) -> seg.name = name) t.segments
 
-let section_contents buf (t : t) (section : section) =
-  match (t.header.format, section.offset) with
-  | MACHO, Some offset ->
+let section_contents buf (_t : t) (section : section) =
+  match section.offset with
+  | Some offset ->
       Bigarray.Array1.sub buf
         (Unsigned.UInt64.to_int offset)
         (Unsigned.UInt64.to_int section.size)
-  | ELF, Some offset ->
-      Bigarray.Array1.sub buf
-        (Unsigned.UInt64.to_int offset)
-        (Unsigned.UInt64.to_int section.size)
-  | _, None -> invalid_arg "Section has no file offset"
+  | None -> invalid_arg "Section has no file offset"
 
 let format t = t.header.format
 let architecture t = t.header.architecture
@@ -247,18 +279,7 @@ let is_64bit t = t.header.is_64bit
 let is_executable t = t.header.is_executable
 
 (** Detect file format from buffer using magic numbers *)
-let detect_format (buf : Buffer.t) =
-  let cursor = Buffer.cursor buf in
-  let magic = Buffer.Read.u32 cursor in
-  let magic_int = Unsigned.UInt32.to_int magic in
-  match magic_int with
-  | 0x7f454c46 -> ELF (* ELF magic: \x7fELF big-endian *)
-  | 0x464c457f -> ELF (* ELF magic: \x7fELF little-endian *)
-  | 0xFEEDFACE | 0xFEEDFACF | 0xCEFAEDFE | 0xCFFAEDFE ->
-      MACHO (* Mach-O magics *)
-  | 0xCAFEBABE | 0xBEBAFECA | 0xCAFEBABF | 0xBFBAFECA ->
-      MACHO (* FAT/Universal binaries contain Mach-O *)
-  | _ -> failwith "Unsupported file format"
+let detect_format = detect_format_internal
 
 let is_fat buffer = Macho.is_fat buffer
 

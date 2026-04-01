@@ -10,7 +10,7 @@ type arch =
 (** Architecture types *)
 
 (** File format types *)
-type format = ELF | MACHO
+type format = ELF | MACHO | PE
 
 type section = {
   name : string;

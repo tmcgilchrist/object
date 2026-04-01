@@ -9,6 +9,7 @@ let print_header (obj : Object.Object_format.t) =
     match header.format with
     | Object.Object_format.ELF -> "ELF"
     | Object.Object_format.MACHO -> "Mach-O"
+    | Object.Object_format.PE -> "PE"
   in
   let arch_str =
     match header.architecture with
