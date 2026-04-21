@@ -248,7 +248,8 @@ let process_file filename show_all preserve_order =
     match Object_format.format obj with
     | Object_format.MACHO -> process_macho_file filename show_all preserve_order
     | Object_format.ELF -> process_elf_file filename show_all preserve_order
-    | Object_format.PE -> eprintf "nm: %s: PE format not yet supported\n" filename
+    | Object_format.PE ->
+        eprintf "nm: %s: PE format not yet supported\n" filename
   with
   | Sys_error msg ->
       eprintf "nm: %s: %s\n" filename msg;

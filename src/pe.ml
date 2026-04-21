@@ -592,8 +592,8 @@ let section_contents (buf : Buffer.t) (sh : section_header) : Buffer.t =
 (** {2 Debug Directory}
 
     The debug directory is found via the IMAGE_DIRECTORY_ENTRY_DEBUG data
-    directory entry. It contains entries describing debug information,
-    including the path to the PDB file. *)
+    directory entry. It contains entries describing debug information, including
+    the path to the PDB file. *)
 
 type debug_type =
   | IMAGE_DEBUG_TYPE_UNKNOWN
@@ -637,8 +637,8 @@ type debug_directory_entry = {
 }
 
 type codeview_info = {
-  cv_signature : string; (** "RSDS" for PDB 7.0 *)
-  guid : string; (** 16-byte GUID *)
+  cv_signature : string;  (** "RSDS" for PDB 7.0 *)
+  guid : string;  (** 16-byte GUID *)
   age : u32;
   pdb_path : string;
 }
@@ -650,7 +650,7 @@ let parse_debug_directory (buf : Buffer.t) (pe_obj : pe_object) :
   | Some opt -> (
       match opt.data_directory.debug_data with
       | None -> []
-      | Some dd ->
+      | Some dd -> (
           let rva = Unsigned.UInt32.to_int dd.virtual_address in
           let size = Unsigned.UInt32.to_int dd.size in
           if rva = 0 || size = 0 then []
@@ -665,12 +665,12 @@ let parse_debug_directory (buf : Buffer.t) (pe_obj : pe_object) :
                   if rva >= sec_rva && rva < sec_rva + sec_size then
                     found :=
                       Some
-                        (Unsigned.UInt32.to_int sh.pointer_to_raw_data + rva
-                       - sec_rva))
+                        (Unsigned.UInt32.to_int sh.pointer_to_raw_data
+                        + rva - sec_rva))
                 pe_obj.section_headers;
               !found
             in
-            (match file_offset with
+            match file_offset with
             | None -> []
             | Some offset ->
                 let cursor = Buffer.cursor ~at:offset buf in
@@ -724,9 +724,7 @@ let parse_codeview_info (buf : Buffer.t) (entry : debug_directory_entry) :
 let find_pdb_path (buf : Buffer.t) (pe_obj : pe_object) : string option =
   let entries = parse_debug_directory buf pe_obj in
   let codeview_entry =
-    List.find_opt
-      (fun e -> e.debug_type = IMAGE_DEBUG_TYPE_CODEVIEW)
-      entries
+    List.find_opt (fun e -> e.debug_type = IMAGE_DEBUG_TYPE_CODEVIEW) entries
   in
   match codeview_entry with
   | None -> None
@@ -734,4 +732,3 @@ let find_pdb_path (buf : Buffer.t) (pe_obj : pe_object) : string option =
       match parse_codeview_info buf entry with
       | Some info -> Some info.pdb_path
       | None -> None)
-

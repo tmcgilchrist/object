@@ -415,14 +415,14 @@ val section_is_discardable : section_header -> bool
     discarded as needed (has IMAGE_SCN_MEM_DISCARDABLE flag). *)
 
 val section_contents : Buffer.t -> section_header -> Buffer.t
-(** [section_contents buf section] returns a buffer containing the raw data
-    of the section. *)
+(** [section_contents buf section] returns a buffer containing the raw data of
+    the section. *)
 
 (** {2 Debug Directory}
 
     The debug directory is found via the IMAGE_DIRECTORY_ENTRY_DEBUG data
-    directory entry. It provides information about embedded debug data
-    and paths to external PDB files. *)
+    directory entry. It provides information about embedded debug data and paths
+    to external PDB files. *)
 
 type debug_type =
   | IMAGE_DEBUG_TYPE_UNKNOWN
@@ -458,14 +458,14 @@ type codeview_info = {
 }
 
 val parse_debug_directory : Buffer.t -> pe_object -> debug_directory_entry list
-(** [parse_debug_directory buf pe_obj] parses the debug directory entries
-    from the PE file. *)
+(** [parse_debug_directory buf pe_obj] parses the debug directory entries from
+    the PE file. *)
 
 val parse_codeview_info :
   Buffer.t -> debug_directory_entry -> codeview_info option
-(** [parse_codeview_info buf entry] parses a CodeView (RSDS) debug entry
-    to extract the PDB GUID, age, and file path. *)
+(** [parse_codeview_info buf entry] parses a CodeView (RSDS) debug entry to
+    extract the PDB GUID, age, and file path. *)
 
 val find_pdb_path : Buffer.t -> pe_object -> string option
-(** [find_pdb_path buf pe_obj] finds the PDB file path from a PE file's
-    CodeView debug directory entry, if present. *)
+(** [find_pdb_path buf pe_obj] finds the PDB file path from a PE file's CodeView
+    debug directory entry, if present. *)
