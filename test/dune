@@ -11,6 +11,12 @@
   (run %{exe:test_leb128.exe})))
 
 (test
+ (name test_pe_unwind)
+ (libraries object integers alcotest)
+ (action
+  (run %{exe:test_pe_unwind.exe})))
+
+(test
  (name test_fat)
  (build_if
   (and

@@ -732,3 +732,39 @@ let find_pdb_path (buf : Buffer.t) (pe_obj : pe_object) : string option =
       match parse_codeview_info buf entry with
       | Some info -> Some info.pdb_path
       | None -> None)
+
+(** {2 Exception Data (.pdata / .xdata)} *)
+
+type runtime_function = {
+  begin_address : u32;
+  end_address : u32;
+  unwind_info_address : u32;
+}
+
+let parse_pdata (buf : Buffer.t) (sh : section_header) :
+    runtime_function array =
+  let offset = Unsigned.UInt32.to_int sh.pointer_to_raw_data in
+  let size = Unsigned.UInt32.to_int sh.size_of_raw_data in
+  let count = size / 12 in
+  let cursor = Buffer.cursor ~at:offset buf in
+  Array.init count (fun _ ->
+      let begin_address = Buffer.Read.u32 cursor in
+      let end_address = Buffer.Read.u32 cursor in
+      let unwind_info_address = Buffer.Read.u32 cursor in
+      { begin_address; end_address; unwind_info_address })
+
+let write_u32_le_pe buf v =
+  Stdlib.Buffer.add_char buf (Char.chr (v land 0xFF));
+  Stdlib.Buffer.add_char buf (Char.chr ((v lsr 8) land 0xFF));
+  Stdlib.Buffer.add_char buf (Char.chr ((v lsr 16) land 0xFF));
+  Stdlib.Buffer.add_char buf (Char.chr ((v lsr 24) land 0xFF))
+
+let write_pdata (buf : Stdlib.Buffer.t) (entries : runtime_function list) :
+    unit =
+  List.iter
+    (fun e ->
+      write_u32_le_pe buf (Unsigned.UInt32.to_int e.begin_address);
+      write_u32_le_pe buf (Unsigned.UInt32.to_int e.end_address);
+      write_u32_le_pe buf (Unsigned.UInt32.to_int e.unwind_info_address))
+    entries
+

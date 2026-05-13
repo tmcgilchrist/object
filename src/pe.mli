@@ -469,3 +469,31 @@ val parse_codeview_info :
 val find_pdb_path : Buffer.t -> pe_object -> string option
 (** [find_pdb_path buf pe_obj] finds the PDB file path from a PE file's CodeView
     debug directory entry, if present. *)
+
+(** {2 Exception Data (.pdata / .xdata)}
+
+    On Windows x86-64, stack unwinding uses structured exception handling (SEH)
+    rather than DWARF .eh_frame. The .pdata section contains a sorted array of
+    RUNTIME_FUNCTION entries (one per non-leaf function), each pointing to an
+    UNWIND_INFO structure in the .xdata section.
+
+    These are the Windows equivalent of DWARF CFI (Call Frame Information).
+    The assembler directives .seh_proc, .seh_pushreg, .seh_stackalloc,
+    .seh_setframe, .seh_endprologue, .seh_endproc generate these structures. *)
+
+(** {3 .pdata: Runtime Function Table} *)
+
+type runtime_function = {
+  begin_address : u32; (** Image-relative RVA of function start *)
+  end_address : u32; (** Image-relative RVA of function end *)
+  unwind_info_address : u32; (** Image-relative RVA of UNWIND_INFO in .xdata *)
+}
+(** A RUNTIME_FUNCTION entry from the .pdata section. *)
+
+val parse_pdata : Buffer.t -> section_header -> runtime_function array
+(** [parse_pdata buf pdata_section] parses the .pdata section into an
+    array of RUNTIME_FUNCTION entries. *)
+
+val write_pdata : Stdlib.Buffer.t -> runtime_function list -> unit
+(** [write_pdata buf entries] serializes RUNTIME_FUNCTION entries into
+    .pdata format. *)
