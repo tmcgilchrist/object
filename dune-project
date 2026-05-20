@@ -15,7 +15,7 @@
  (description "A unified interface for reading and writing object file formats")
   (depends
     (ocaml (>= 4.08))
-    integers
+    (integers (>= 0.8.0))
     (cmdliner :with-test)
     (alcotest :with-test)
-    (ocamlformat (and :with-dev-setup (= 0.27.0)))))
+    (ocamlformat (and :with-dev-setup (= 0.29.0)))))

@@ -12,10 +12,10 @@ bug-reports: "https://github.com/tmcgilchrist/object/issues"
 depends: [
   "dune" {>= "3.9"}
   "ocaml" {>= "4.08"}
-  "integers"
+  "integers" {>= "0.8.0"}
   "cmdliner" {with-test}
   "alcotest" {with-test}
-  "ocamlformat" {with-dev-setup & = "0.27.0"}
+  "ocamlformat" {with-dev-setup & = "0.29.0"}
   "odoc" {with-doc}
 ]
 build: [
@@ -33,6 +33,3 @@ build: [
   ]
 ]
 dev-repo: "git+https://github.com/tmcgilchrist/object.git"
-pin-depends: [
-  ["integers.dev" "git+https://github.com/tmcgilchrist/ocaml-integers.git#small-signed-integers-fixes"]
-]
