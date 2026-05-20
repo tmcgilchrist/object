@@ -1,3 +1,0 @@
-pin-depends: [
-  ["integers.dev" "git+https://github.com/tmcgilchrist/ocaml-integers.git#small-signed-integers-fixes"]
-]
