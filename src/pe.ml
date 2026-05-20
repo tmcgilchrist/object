@@ -3,36 +3,36 @@ open Object_types
 (** Windows PE/COFF parser based on
     {:https://docs.microsoft.com/en-us/windows/win32/debug/pe-format}. *)
 
-(** Prior art for PE/COFF parsers:
-    https://github.com/ocaml/ocaml/blob/trunk/utils/binutils.ml#L480
-    https://github.com/ocaml/flexdll/blob/master/coff.ml *)
-
 type machine_type =
-  [ `IMAGE_FILE_MACHINE_I386
-  | `IMAGE_FILE_MACHINE_AMD64
-  | `IMAGE_FILE_MACHINE_ARM
-  | `IMAGE_FILE_MACHINE_ARM64
-  | `IMAGE_FILE_MACHINE_UNKNOWN of u16 ]
+  | IMAGE_FILE_MACHINE_I386
+  | IMAGE_FILE_MACHINE_AMD64
+  | IMAGE_FILE_MACHINE_ARM
+  | IMAGE_FILE_MACHINE_ARM64
+  | IMAGE_FILE_MACHINE_ARM64EC
+  | IMAGE_FILE_MACHINE_ARM64X
+  | IMAGE_FILE_MACHINE_IA64
+  | IMAGE_FILE_MACHINE_RISCV32
+  | IMAGE_FILE_MACHINE_RISCV64
+  | IMAGE_FILE_MACHINE_UNKNOWN of u16
 
 type pe_magic = PE32 | PE32PLUS
 
 type section_characteristics =
-  [ `IMAGE_SCN_TYPE_NO_PAD  (** Section should not be padded to next boundary *)
-  | `IMAGE_SCN_CNT_CODE  (** Section contains executable code *)
-  | `IMAGE_SCN_CNT_INITIALIZED_DATA  (** Section contains initialized data *)
-  | `IMAGE_SCN_CNT_UNINITIALIZED_DATA
-    (** Section contains uninitialized data *)
-  | `IMAGE_SCN_LNK_INFO  (** Section contains comments or other information *)
-  | `IMAGE_SCN_LNK_REMOVE  (** Section will not become part of the image *)
-  | `IMAGE_SCN_LNK_COMDAT  (** Section contains COMDAT data *)
-  | `IMAGE_SCN_MEM_DISCARDABLE  (** Section can be discarded as needed *)
-  | `IMAGE_SCN_MEM_NOT_CACHED  (** Section cannot be cached *)
-  | `IMAGE_SCN_MEM_NOT_PAGED  (** Section is not pageable *)
-  | `IMAGE_SCN_MEM_SHARED  (** Section can be shared in memory *)
-  | `IMAGE_SCN_MEM_EXECUTE  (** Section can be executed as code *)
-  | `IMAGE_SCN_MEM_READ  (** Section can be read *)
-  | `IMAGE_SCN_MEM_WRITE  (** Section can be written to *)
-  | `IMAGE_SCN_UNKNOWN of u32  (** Unknown characteristics with raw flags *) ]
+  | IMAGE_SCN_TYPE_NO_PAD  (** Section should not be padded to next boundary *)
+  | IMAGE_SCN_CNT_CODE  (** Section contains executable code *)
+  | IMAGE_SCN_CNT_INITIALIZED_DATA  (** Section contains initialised data *)
+  | IMAGE_SCN_CNT_UNINITIALIZED_DATA  (** Section contains uninitialised data *)
+  | IMAGE_SCN_LNK_INFO  (** Section contains comments or other information *)
+  | IMAGE_SCN_LNK_REMOVE  (** Section will not become part of the image *)
+  | IMAGE_SCN_LNK_COMDAT  (** Section contains COMDAT data *)
+  | IMAGE_SCN_MEM_DISCARDABLE  (** Section can be discarded as needed *)
+  | IMAGE_SCN_MEM_NOT_CACHED  (** Section cannot be cached *)
+  | IMAGE_SCN_MEM_NOT_PAGED  (** Section is not pageable *)
+  | IMAGE_SCN_MEM_SHARED  (** Section can be shared in memory *)
+  | IMAGE_SCN_MEM_EXECUTE  (** Section can be executed as code *)
+  | IMAGE_SCN_MEM_READ  (** Section can be read *)
+  | IMAGE_SCN_MEM_WRITE  (** Section can be written to *)
+  | IMAGE_SCN_UNKNOWN of u32  (** Unknown characteristics with raw flags *)
 
 type coff_header = {
   machine : machine_type;
@@ -42,6 +42,45 @@ type coff_header = {
   number_of_symbols : u32;
   size_of_optional_header : u16;
   characteristics : u16;
+}
+
+type data_directory_type =
+  | IMAGE_DIRECTORY_ENTRY_EXPORT
+  | IMAGE_DIRECTORY_ENTRY_IMPORT
+  | IMAGE_DIRECTORY_ENTRY_RESOURCE
+  | IMAGE_DIRECTORY_ENTRY_EXCEPTION
+  | IMAGE_DIRECTORY_ENTRY_SECURITY
+  | IMAGE_DIRECTORY_ENTRY_BASERELOC
+  | IMAGE_DIRECTORY_ENTRY_DEBUG
+  | IMAGE_DIRECTORY_ENTRY_ARCHITECTURE
+  | IMAGE_DIRECTORY_ENTRY_GLOBALPTR
+  | IMAGE_DIRECTORY_ENTRY_TLS
+  | IMAGE_DIRECTORY_ENTRY_LOAD_CONFIG
+  | IMAGE_DIRECTORY_ENTRY_BOUND_IMPORT
+  | IMAGE_DIRECTORY_ENTRY_IAT
+  | IMAGE_DIRECTORY_ENTRY_DELAY_IMPORT
+  | IMAGE_DIRECTORY_ENTRY_COM_DESCRIPTOR
+  | IMAGE_DIRECTORY_ENTRY_RESERVED
+
+type data_directory_entry = { virtual_address : u32; size : u32 }
+
+type data_directory = {
+  export_table : data_directory_entry option;
+  import_table : data_directory_entry option;
+  resource_table : data_directory_entry option;
+  exception_table : data_directory_entry option;
+  certificate_table : data_directory_entry option;
+  base_relocation_table : data_directory_entry option;
+  debug_data : data_directory_entry option;
+  architecture_data : data_directory_entry option;
+  global_ptr : data_directory_entry option;
+  tls_table : data_directory_entry option;
+  load_config_table : data_directory_entry option;
+  bound_import_table : data_directory_entry option;
+  import_address_table : data_directory_entry option;
+  delay_import_table : data_directory_entry option;
+  com_descriptor : data_directory_entry option;
+  reserved : data_directory_entry option;
 }
 
 type optional_header = {
@@ -78,45 +117,6 @@ type optional_header = {
   data_directory : data_directory;
 }
 
-and data_directory_type =
-  [ `IMAGE_DIRECTORY_ENTRY_EXPORT
-  | `IMAGE_DIRECTORY_ENTRY_IMPORT
-  | `IMAGE_DIRECTORY_ENTRY_RESOURCE
-  | `IMAGE_DIRECTORY_ENTRY_EXCEPTION
-  | `IMAGE_DIRECTORY_ENTRY_SECURITY
-  | `IMAGE_DIRECTORY_ENTRY_BASERELOC
-  | `IMAGE_DIRECTORY_ENTRY_DEBUG
-  | `IMAGE_DIRECTORY_ENTRY_ARCHITECTURE
-  | `IMAGE_DIRECTORY_ENTRY_GLOBALPTR
-  | `IMAGE_DIRECTORY_ENTRY_TLS
-  | `IMAGE_DIRECTORY_ENTRY_LOAD_CONFIG
-  | `IMAGE_DIRECTORY_ENTRY_BOUND_IMPORT
-  | `IMAGE_DIRECTORY_ENTRY_IAT
-  | `IMAGE_DIRECTORY_ENTRY_DELAY_IMPORT
-  | `IMAGE_DIRECTORY_ENTRY_COM_DESCRIPTOR
-  | `IMAGE_DIRECTORY_ENTRY_RESERVED ]
-
-and data_directory_entry = { virtual_address : u32; size : u32 }
-
-and data_directory = {
-  export_table : data_directory_entry option;
-  import_table : data_directory_entry option;
-  resource_table : data_directory_entry option;
-  exception_table : data_directory_entry option;
-  certificate_table : data_directory_entry option;
-  base_relocation_table : data_directory_entry option;
-  debug_data : data_directory_entry option;
-  architecture_data : data_directory_entry option;
-  global_ptr : data_directory_entry option;
-  tls_table : data_directory_entry option;
-  load_config_table : data_directory_entry option;
-  bound_import_table : data_directory_entry option;
-  import_address_table : data_directory_entry option;
-  delay_import_table : data_directory_entry option;
-  com_descriptor : data_directory_entry option;
-  reserved : data_directory_entry option;
-}
-
 type section_header = {
   name : string;
   virtual_size : u32;
@@ -131,101 +131,84 @@ type section_header = {
 }
 
 let machine_type_of_u16 n =
-  let open Unsigned.UInt16 in
-  match to_int n with
-  | 0x014c -> `IMAGE_FILE_MACHINE_I386
-  | 0x8664 -> `IMAGE_FILE_MACHINE_AMD64
-  | 0x01c0 -> `IMAGE_FILE_MACHINE_ARM
-  | 0xaa64 -> `IMAGE_FILE_MACHINE_ARM64
-  | _ -> `IMAGE_FILE_MACHINE_UNKNOWN n
+  match Unsigned.UInt16.to_int n with
+  | 0x014c -> IMAGE_FILE_MACHINE_I386
+  | 0x8664 -> IMAGE_FILE_MACHINE_AMD64
+  | 0x01c0 -> IMAGE_FILE_MACHINE_ARM
+  | 0xaa64 -> IMAGE_FILE_MACHINE_ARM64
+  | 0xa641 -> IMAGE_FILE_MACHINE_ARM64EC
+  | 0xa64e -> IMAGE_FILE_MACHINE_ARM64X
+  | 0x0200 -> IMAGE_FILE_MACHINE_IA64
+  | 0x5032 -> IMAGE_FILE_MACHINE_RISCV32
+  | 0x5064 -> IMAGE_FILE_MACHINE_RISCV64
+  | _ -> IMAGE_FILE_MACHINE_UNKNOWN n
+
+let machine_type_to_string = function
+  | IMAGE_FILE_MACHINE_I386 -> "i386"
+  | IMAGE_FILE_MACHINE_AMD64 -> "amd64"
+  | IMAGE_FILE_MACHINE_ARM -> "arm"
+  | IMAGE_FILE_MACHINE_ARM64 -> "arm64"
+  | IMAGE_FILE_MACHINE_ARM64EC -> "arm64ec"
+  | IMAGE_FILE_MACHINE_ARM64X -> "arm64x"
+  | IMAGE_FILE_MACHINE_IA64 -> "ia64"
+  | IMAGE_FILE_MACHINE_RISCV32 -> "riscv32"
+  | IMAGE_FILE_MACHINE_RISCV64 -> "riscv64"
+  | IMAGE_FILE_MACHINE_UNKNOWN n ->
+      Printf.sprintf "unknown(%d)" (Unsigned.UInt16.to_int n)
 
 let pe_magic_of_u16 = function
   | 0x10b -> PE32
   | 0x20b -> PE32PLUS
   | n -> Buffer.invalid_format (Printf.sprintf "Unknown PE magic: 0x%x" n)
 
+let section_characteristics_flags =
+  [
+    (0x00000008, IMAGE_SCN_TYPE_NO_PAD);
+    (0x00000020, IMAGE_SCN_CNT_CODE);
+    (0x00000040, IMAGE_SCN_CNT_INITIALIZED_DATA);
+    (0x00000080, IMAGE_SCN_CNT_UNINITIALIZED_DATA);
+    (0x00000200, IMAGE_SCN_LNK_INFO);
+    (0x00000800, IMAGE_SCN_LNK_REMOVE);
+    (0x00001000, IMAGE_SCN_LNK_COMDAT);
+    (0x02000000, IMAGE_SCN_MEM_DISCARDABLE);
+    (0x04000000, IMAGE_SCN_MEM_NOT_CACHED);
+    (0x08000000, IMAGE_SCN_MEM_NOT_PAGED);
+    (0x10000000, IMAGE_SCN_MEM_SHARED);
+    (0x20000000, IMAGE_SCN_MEM_EXECUTE);
+    (0x40000000, IMAGE_SCN_MEM_READ);
+    (0x80000000, IMAGE_SCN_MEM_WRITE);
+  ]
+
 let section_characteristics_of_u32 flags =
-  let open Unsigned.UInt32 in
-  let flags_int = to_int flags in
-  let characteristics = [] in
+  let flags_int = Unsigned.UInt32.to_int flags in
   let characteristics =
-    if flags_int land 0x00000008 <> 0 then
-      `IMAGE_SCN_TYPE_NO_PAD :: characteristics
-    else characteristics
+    List.fold_left
+      (fun acc (mask, flag) ->
+        if flags_int land mask <> 0 then flag :: acc else acc)
+      [] section_characteristics_flags
   in
-  let characteristics =
-    if flags_int land 0x00000020 <> 0 then
-      `IMAGE_SCN_CNT_CODE :: characteristics
-    else characteristics
-  in
-  let characteristics =
-    if flags_int land 0x00000040 <> 0 then
-      `IMAGE_SCN_CNT_INITIALIZED_DATA :: characteristics
-    else characteristics
-  in
-  let characteristics =
-    if flags_int land 0x00000080 <> 0 then
-      `IMAGE_SCN_CNT_UNINITIALIZED_DATA :: characteristics
-    else characteristics
-  in
-  let characteristics =
-    if flags_int land 0x00000200 <> 0 then
-      `IMAGE_SCN_LNK_INFO :: characteristics
-    else characteristics
-  in
-  let characteristics =
-    if flags_int land 0x00000800 <> 0 then
-      `IMAGE_SCN_LNK_REMOVE :: characteristics
-    else characteristics
-  in
-  let characteristics =
-    if flags_int land 0x00001000 <> 0 then
-      `IMAGE_SCN_LNK_COMDAT :: characteristics
-    else characteristics
-  in
-  let characteristics =
-    if flags_int land 0x02000000 <> 0 then
-      `IMAGE_SCN_MEM_DISCARDABLE :: characteristics
-    else characteristics
-  in
-  let characteristics =
-    if flags_int land 0x04000000 <> 0 then
-      `IMAGE_SCN_MEM_NOT_CACHED :: characteristics
-    else characteristics
-  in
-  let characteristics =
-    if flags_int land 0x08000000 <> 0 then
-      `IMAGE_SCN_MEM_NOT_PAGED :: characteristics
-    else characteristics
-  in
-  let characteristics =
-    if flags_int land 0x10000000 <> 0 then
-      `IMAGE_SCN_MEM_SHARED :: characteristics
-    else characteristics
-  in
-  let characteristics =
-    if flags_int land 0x20000000 <> 0 then
-      `IMAGE_SCN_MEM_EXECUTE :: characteristics
-    else characteristics
-  in
-  let characteristics =
-    if flags_int land 0x40000000 <> 0 then
-      `IMAGE_SCN_MEM_READ :: characteristics
-    else characteristics
-  in
-  let characteristics =
-    if flags_int land 0x80000000 <> 0 then
-      `IMAGE_SCN_MEM_WRITE :: characteristics
-    else characteristics
-  in
-  if characteristics = [] then [ `IMAGE_SCN_UNKNOWN flags ] else characteristics
+  if characteristics = [] then [ IMAGE_SCN_UNKNOWN flags ] else characteristics
+
+let image_dos_signature = 0x5a4d (* "MZ" *)
+let image_nt_signature = 0x00004550 (* "PE\000\000" *)
+
+(* Read the 2-byte DOS signature at the cursor; [true] if it is "MZ". *)
+let check_dos_signature cursor =
+  Unsigned.UInt16.to_int (Buffer.Read.u16 cursor) = image_dos_signature
+
+(* Read the 4-byte PE signature at the cursor; [true] if it is "PE\0\0". *)
+let check_nt_signature cursor =
+  Unsigned.UInt32.to_int (Buffer.Read.u32 cursor) = image_nt_signature
+
+(* Truncate [s] at its first NUL byte, as used for fixed-width name fields. *)
+let string_until_nul s =
+  match String.index_opt s '\000' with Some i -> String.sub s 0 i | None -> s
 
 let is_pe buffer =
   try
     let cursor = Buffer.cursor buffer in
     Buffer.ensure cursor 2 "PE detection: insufficient data for DOS signature";
-    let dos_signature = Buffer.Read.u16 cursor in
-    if dos_signature <> Unsigned.UInt16.of_int 0x5a4d then false
+    if not (check_dos_signature cursor) then false
     else (
       Buffer.ensure cursor 58 "PE detection: insufficient data for DOS header";
       Buffer.seek cursor 60;
@@ -234,32 +217,30 @@ let is_pe buffer =
       Buffer.ensure cursor (pe_offset + 4)
         "PE detection: insufficient data for PE signature";
       Buffer.seek cursor pe_offset;
-      let pe_signature = Buffer.Read.u32 cursor in
-      pe_signature = Unsigned.UInt32.of_int 0x00004550)
+      check_nt_signature cursor)
   with Buffer.Invalid_format _ -> false
 
 let find_pe_header_offset buffer =
   let cursor = Buffer.cursor buffer in
   Buffer.ensure cursor 2 "DOS signature check";
-  let dos_signature = Buffer.Read.u16 cursor in
-  if dos_signature <> Unsigned.UInt16.of_int 0x5a4d then
+  if not (check_dos_signature cursor) then
     Buffer.invalid_format "Not a DOS/PE file: missing DOS signature";
   Buffer.seek cursor 60;
   let pe_header_offset = Buffer.Read.u32 cursor in
   Unsigned.UInt32.to_int pe_header_offset
 
 let read_coff_header cursor =
+  let open Buffer.Read in
   Buffer.ensure cursor 24 "COFF header";
-  let pe_signature = Buffer.Read.u32 cursor in
-  if pe_signature <> Unsigned.UInt32.of_int 0x00004550 then
+  if not (check_nt_signature cursor) then
     Buffer.invalid_format "Not a PE file: missing PE signature";
-  let machine = machine_type_of_u16 (Buffer.Read.u16 cursor) in
-  let number_of_sections = Buffer.Read.u16 cursor in
-  let time_date_stamp = Buffer.Read.u32 cursor in
-  let pointer_to_symbol_table = Buffer.Read.u32 cursor in
-  let number_of_symbols = Buffer.Read.u32 cursor in
-  let size_of_optional_header = Buffer.Read.u16 cursor in
-  let characteristics = Buffer.Read.u16 cursor in
+  let machine = machine_type_of_u16 (u16 cursor) in
+  let number_of_sections = u16 cursor in
+  let time_date_stamp = u32 cursor in
+  let pointer_to_symbol_table = u32 cursor in
+  let number_of_symbols = u32 cursor in
+  let size_of_optional_header = u16 cursor in
+  let characteristics = u16 cursor in
   {
     machine;
     number_of_sections;
@@ -271,17 +252,17 @@ let read_coff_header cursor =
   }
 
 let read_data_directory_entry cursor =
-  let virtual_address = Buffer.Read.u32 cursor in
-  let size = Buffer.Read.u32 cursor in
-  if
-    Unsigned.UInt32.to_int virtual_address = 0
-    && Unsigned.UInt32.to_int size = 0
-  then None
+  let open Buffer.Read in
+  let virtual_address = u32 cursor in
+  let size = u32 cursor in
+  if Unsigned.UInt32.(to_int virtual_address = 0 && to_int size = 0) then None
   else Some { virtual_address; size }
 
 let read_data_directory cursor num_entries =
+  let count = min (Unsigned.UInt32.to_int num_entries) 16 in
+  Buffer.ensure cursor (count * 8) "Optional header data directory";
   let entries = Array.make 16 None in
-  for i = 0 to min (Unsigned.UInt32.to_int num_entries - 1) 15 do
+  for i = 0 to count - 1 do
     entries.(i) <- read_data_directory_entry cursor
   done;
   {
@@ -304,28 +285,28 @@ let read_data_directory cursor num_entries =
   }
 
 let get_data_directory_entry data_directory = function
-  | `IMAGE_DIRECTORY_ENTRY_EXPORT -> data_directory.export_table
-  | `IMAGE_DIRECTORY_ENTRY_IMPORT -> data_directory.import_table
-  | `IMAGE_DIRECTORY_ENTRY_RESOURCE -> data_directory.resource_table
-  | `IMAGE_DIRECTORY_ENTRY_EXCEPTION -> data_directory.exception_table
-  | `IMAGE_DIRECTORY_ENTRY_SECURITY -> data_directory.certificate_table
-  | `IMAGE_DIRECTORY_ENTRY_BASERELOC -> data_directory.base_relocation_table
-  | `IMAGE_DIRECTORY_ENTRY_DEBUG -> data_directory.debug_data
-  | `IMAGE_DIRECTORY_ENTRY_ARCHITECTURE -> data_directory.architecture_data
-  | `IMAGE_DIRECTORY_ENTRY_GLOBALPTR -> data_directory.global_ptr
-  | `IMAGE_DIRECTORY_ENTRY_TLS -> data_directory.tls_table
-  | `IMAGE_DIRECTORY_ENTRY_LOAD_CONFIG -> data_directory.load_config_table
-  | `IMAGE_DIRECTORY_ENTRY_BOUND_IMPORT -> data_directory.bound_import_table
-  | `IMAGE_DIRECTORY_ENTRY_IAT -> data_directory.import_address_table
-  | `IMAGE_DIRECTORY_ENTRY_DELAY_IMPORT -> data_directory.delay_import_table
-  | `IMAGE_DIRECTORY_ENTRY_COM_DESCRIPTOR -> data_directory.com_descriptor
-  | `IMAGE_DIRECTORY_ENTRY_RESERVED -> data_directory.reserved
+  | IMAGE_DIRECTORY_ENTRY_EXPORT -> data_directory.export_table
+  | IMAGE_DIRECTORY_ENTRY_IMPORT -> data_directory.import_table
+  | IMAGE_DIRECTORY_ENTRY_RESOURCE -> data_directory.resource_table
+  | IMAGE_DIRECTORY_ENTRY_EXCEPTION -> data_directory.exception_table
+  | IMAGE_DIRECTORY_ENTRY_SECURITY -> data_directory.certificate_table
+  | IMAGE_DIRECTORY_ENTRY_BASERELOC -> data_directory.base_relocation_table
+  | IMAGE_DIRECTORY_ENTRY_DEBUG -> data_directory.debug_data
+  | IMAGE_DIRECTORY_ENTRY_ARCHITECTURE -> data_directory.architecture_data
+  | IMAGE_DIRECTORY_ENTRY_GLOBALPTR -> data_directory.global_ptr
+  | IMAGE_DIRECTORY_ENTRY_TLS -> data_directory.tls_table
+  | IMAGE_DIRECTORY_ENTRY_LOAD_CONFIG -> data_directory.load_config_table
+  | IMAGE_DIRECTORY_ENTRY_BOUND_IMPORT -> data_directory.bound_import_table
+  | IMAGE_DIRECTORY_ENTRY_IAT -> data_directory.import_address_table
+  | IMAGE_DIRECTORY_ENTRY_DELAY_IMPORT -> data_directory.delay_import_table
+  | IMAGE_DIRECTORY_ENTRY_COM_DESCRIPTOR -> data_directory.com_descriptor
+  | IMAGE_DIRECTORY_ENTRY_RESERVED -> data_directory.reserved
 
 let has_data_directory data_directory dir_type =
   match get_data_directory_entry data_directory dir_type with
   | Some entry ->
-      Unsigned.UInt32.to_int entry.virtual_address <> 0
-      || Unsigned.UInt32.to_int entry.size <> 0
+      Unsigned.UInt32.(
+        to_int entry.virtual_address <> 0 || to_int entry.size <> 0)
   | None -> false
 
 let get_data_directory_address data_directory dir_type =
@@ -338,53 +319,53 @@ let get_data_directory_size data_directory dir_type =
   | Some entry -> Some entry.size
   | None -> None
 
+(* Read a 32-bit field and widen it to [u64], for fields that are 32-bit in
+   PE32 but 64-bit in PE32+. *)
+let read_u32_as_u64 cursor = u32_to_u64 (Buffer.Read.u32 cursor)
+
 let read_optional_header cursor optional_header_size =
+  let open Buffer.Read in
   if Unsigned.UInt16.to_int optional_header_size < 24 then
     Buffer.invalid_format "Optional header too small";
 
   Buffer.ensure cursor 24 "Optional header standard fields";
-  let magic =
-    pe_magic_of_u16 (Unsigned.UInt16.to_int (Buffer.Read.u16 cursor))
-  in
-  let major_linker_version = Buffer.Read.u8 cursor in
-  let minor_linker_version = Buffer.Read.u8 cursor in
-  let size_of_code = Buffer.Read.u32 cursor in
-  let size_of_initialized_data = Buffer.Read.u32 cursor in
-  let size_of_uninitialized_data = Buffer.Read.u32 cursor in
-  let address_of_entry_point = Buffer.Read.u32 cursor in
-  let base_of_code = Buffer.Read.u32 cursor in
+  let magic = pe_magic_of_u16 (Unsigned.UInt16.to_int (u16 cursor)) in
+  let major_linker_version = u8 cursor in
+  let minor_linker_version = u8 cursor in
+  let size_of_code = u32 cursor in
+  let size_of_initialized_data = u32 cursor in
+  let size_of_uninitialized_data = u32 cursor in
+  let address_of_entry_point = u32 cursor in
+  let base_of_code = u32 cursor in
 
   let base_of_data, image_base =
     match magic with
     | PE32 ->
         Buffer.ensure cursor 8 "PE32 additional fields";
-        let base_of_data = Some (Buffer.Read.u32 cursor) in
-        let image_base =
-          Unsigned.UInt64.of_int
-            (Unsigned.UInt32.to_int (Buffer.Read.u32 cursor))
-        in
+        let base_of_data = Some (u32 cursor) in
+        let image_base = read_u32_as_u64 cursor in
         (base_of_data, image_base)
     | PE32PLUS ->
         Buffer.ensure cursor 8 "PE32+ image base";
-        let image_base = Buffer.Read.u64 cursor in
+        let image_base = u64 cursor in
         (None, image_base)
   in
 
   Buffer.ensure cursor 68 "Optional header Windows fields";
-  let section_alignment = Buffer.Read.u32 cursor in
-  let file_alignment = Buffer.Read.u32 cursor in
-  let major_operating_system_version = Buffer.Read.u16 cursor in
-  let minor_operating_system_version = Buffer.Read.u16 cursor in
-  let major_image_version = Buffer.Read.u16 cursor in
-  let minor_image_version = Buffer.Read.u16 cursor in
-  let major_subsystem_version = Buffer.Read.u16 cursor in
-  let minor_subsystem_version = Buffer.Read.u16 cursor in
-  let win32_version_value = Buffer.Read.u32 cursor in
-  let size_of_image = Buffer.Read.u32 cursor in
-  let size_of_headers = Buffer.Read.u32 cursor in
-  let checksum = Buffer.Read.u32 cursor in
-  let subsystem = Buffer.Read.u16 cursor in
-  let dll_characteristics = Buffer.Read.u16 cursor in
+  let section_alignment = u32 cursor in
+  let file_alignment = u32 cursor in
+  let major_operating_system_version = u16 cursor in
+  let minor_operating_system_version = u16 cursor in
+  let major_image_version = u16 cursor in
+  let minor_image_version = u16 cursor in
+  let major_subsystem_version = u16 cursor in
+  let minor_subsystem_version = u16 cursor in
+  let win32_version_value = u32 cursor in
+  let size_of_image = u32 cursor in
+  let size_of_headers = u32 cursor in
+  let checksum = u32 cursor in
+  let subsystem = u16 cursor in
+  let dll_characteristics = u16 cursor in
 
   let ( size_of_stack_reserve,
         size_of_stack_commit,
@@ -393,35 +374,23 @@ let read_optional_header cursor optional_header_size =
     match magic with
     | PE32 ->
         Buffer.ensure cursor 16 "PE32 size fields";
-        let stack_reserve =
-          Unsigned.UInt64.of_int
-            (Unsigned.UInt32.to_int (Buffer.Read.u32 cursor))
-        in
-        let stack_commit =
-          Unsigned.UInt64.of_int
-            (Unsigned.UInt32.to_int (Buffer.Read.u32 cursor))
-        in
-        let heap_reserve =
-          Unsigned.UInt64.of_int
-            (Unsigned.UInt32.to_int (Buffer.Read.u32 cursor))
-        in
-        let heap_commit =
-          Unsigned.UInt64.of_int
-            (Unsigned.UInt32.to_int (Buffer.Read.u32 cursor))
-        in
+        let stack_reserve = read_u32_as_u64 cursor in
+        let stack_commit = read_u32_as_u64 cursor in
+        let heap_reserve = read_u32_as_u64 cursor in
+        let heap_commit = read_u32_as_u64 cursor in
         (stack_reserve, stack_commit, heap_reserve, heap_commit)
     | PE32PLUS ->
         Buffer.ensure cursor 32 "PE32+ size fields";
-        let stack_reserve = Buffer.Read.u64 cursor in
-        let stack_commit = Buffer.Read.u64 cursor in
-        let heap_reserve = Buffer.Read.u64 cursor in
-        let heap_commit = Buffer.Read.u64 cursor in
+        let stack_reserve = u64 cursor in
+        let stack_commit = u64 cursor in
+        let heap_reserve = u64 cursor in
+        let heap_commit = u64 cursor in
         (stack_reserve, stack_commit, heap_reserve, heap_commit)
   in
 
   Buffer.ensure cursor 8 "Optional header final fields";
-  let loader_flags = Buffer.Read.u32 cursor in
-  let number_of_rva_and_sizes = Buffer.Read.u32 cursor in
+  let loader_flags = u32 cursor in
+  let number_of_rva_and_sizes = u32 cursor in
 
   (* Read data directory entries *)
   let data_directory = read_data_directory cursor number_of_rva_and_sizes in
@@ -461,33 +430,18 @@ let read_optional_header cursor optional_header_size =
   }
 
 let read_section_header cursor =
+  let open Buffer.Read in
   Buffer.ensure cursor 40 "Section header";
-  let name_bytes = Buffer.Read.fixed_string cursor 8 in
-  let name =
-    if
-      String.length name_bytes = 0
-      || String.for_all (fun c -> c = '\000') name_bytes
-    then "" (* Empty name - will be handled by caller *)
-    else
-      (* Find the end of the string (before first null byte) *)
-      let len = String.length name_bytes in
-      let rec find_null pos =
-        if pos >= len then len
-        else if name_bytes.[pos] = '\000' then pos
-        else find_null (pos + 1)
-      in
-      let name_len = find_null 0 in
-      if name_len = 0 then "" else String.sub name_bytes 0 name_len
-  in
-  let virtual_size = Buffer.Read.u32 cursor in
-  let virtual_address = Buffer.Read.u32 cursor in
-  let size_of_raw_data = Buffer.Read.u32 cursor in
-  let pointer_to_raw_data = Buffer.Read.u32 cursor in
-  let pointer_to_relocations = Buffer.Read.u32 cursor in
-  let pointer_to_line_numbers = Buffer.Read.u32 cursor in
-  let number_of_relocations = Buffer.Read.u16 cursor in
-  let number_of_line_numbers = Buffer.Read.u16 cursor in
-  let characteristics_raw = Buffer.Read.u32 cursor in
+  let name = string_until_nul (fixed_string cursor 8) in
+  let virtual_size = u32 cursor in
+  let virtual_address = u32 cursor in
+  let size_of_raw_data = u32 cursor in
+  let pointer_to_raw_data = u32 cursor in
+  let pointer_to_relocations = u32 cursor in
+  let pointer_to_line_numbers = u32 cursor in
+  let number_of_relocations = u16 cursor in
+  let number_of_line_numbers = u16 cursor in
+  let characteristics_raw = u32 cursor in
   let characteristics = section_characteristics_of_u32 characteristics_raw in
   {
     name;
@@ -507,20 +461,25 @@ let read_section_headers cursor number_of_sections =
       read_section_header cursor)
 
 let machine_to_arch = function
-  | `IMAGE_FILE_MACHINE_I386 -> `X86
-  | `IMAGE_FILE_MACHINE_AMD64 -> `X86_64
-  | `IMAGE_FILE_MACHINE_ARM -> `ARM
-  | `IMAGE_FILE_MACHINE_ARM64 -> `ARM64
-  | `IMAGE_FILE_MACHINE_UNKNOWN n -> `Unknown (Unsigned.UInt16.to_int n)
+  | IMAGE_FILE_MACHINE_I386 -> `X86
+  | IMAGE_FILE_MACHINE_AMD64 -> `X86_64
+  | IMAGE_FILE_MACHINE_ARM -> `ARM
+  | IMAGE_FILE_MACHINE_ARM64 | IMAGE_FILE_MACHINE_ARM64EC
+  | IMAGE_FILE_MACHINE_ARM64X ->
+      `ARM64
+  | IMAGE_FILE_MACHINE_IA64 -> `Unknown 0x0200
+  | IMAGE_FILE_MACHINE_RISCV32 -> `Unknown 0x5032
+  | IMAGE_FILE_MACHINE_RISCV64 -> `Unknown 0x5064
+  | IMAGE_FILE_MACHINE_UNKNOWN n -> `Unknown (Unsigned.UInt16.to_int n)
 
 let section_characteristics_to_type_string characteristics =
   let has_char char = List.mem char characteristics in
-  if has_char `IMAGE_SCN_CNT_CODE then "CODE"
-  else if has_char `IMAGE_SCN_CNT_INITIALIZED_DATA then "DATA"
-  else if has_char `IMAGE_SCN_CNT_UNINITIALIZED_DATA then "BSS"
-  else if has_char `IMAGE_SCN_LNK_INFO then "INFO"
-  else if has_char `IMAGE_SCN_LNK_REMOVE then "REMOVE"
-  else if has_char `IMAGE_SCN_LNK_COMDAT then "COMDAT"
+  if has_char IMAGE_SCN_CNT_CODE then "CODE"
+  else if has_char IMAGE_SCN_CNT_INITIALIZED_DATA then "DATA"
+  else if has_char IMAGE_SCN_CNT_UNINITIALIZED_DATA then "BSS"
+  else if has_char IMAGE_SCN_LNK_INFO then "INFO"
+  else if has_char IMAGE_SCN_LNK_REMOVE then "REMOVE"
+  else if has_char IMAGE_SCN_LNK_COMDAT then "COMDAT"
   else "UNKNOWN"
 
 type pe_object = {
@@ -543,9 +502,6 @@ let read buffer =
   in
   { coff_header; optional_header; section_headers }
 
-let sections pe_obj = pe_obj.section_headers
-let get_architecture pe_obj = machine_to_arch pe_obj.coff_header.machine
-
 let is_64bit pe_obj =
   match pe_obj.optional_header with
   | Some opt -> opt.magic = PE32PLUS
@@ -556,38 +512,58 @@ let is_executable pe_obj =
 
 let entry_point pe_obj =
   match pe_obj.optional_header with
-  | Some opt when Unsigned.UInt32.to_int opt.address_of_entry_point <> 0 ->
+  | Some opt when u32_to_int opt.address_of_entry_point <> 0 ->
       Some
-        (Unsigned.UInt64.of_int
-           (Unsigned.UInt32.to_int opt.address_of_entry_point))
+        (Unsigned.UInt64.add opt.image_base
+           (u32_to_u64 opt.address_of_entry_point))
   | _ -> None
 
 let section_has_characteristic section_header characteristic =
   List.mem characteristic section_header.characteristics
 
 let section_is_executable section_header =
-  section_has_characteristic section_header `IMAGE_SCN_MEM_EXECUTE
+  section_has_characteristic section_header IMAGE_SCN_MEM_EXECUTE
 
 let section_is_writable section_header =
-  section_has_characteristic section_header `IMAGE_SCN_MEM_WRITE
+  section_has_characteristic section_header IMAGE_SCN_MEM_WRITE
 
 let section_is_readable section_header =
-  section_has_characteristic section_header `IMAGE_SCN_MEM_READ
+  section_has_characteristic section_header IMAGE_SCN_MEM_READ
 
 let section_contains_code section_header =
-  section_has_characteristic section_header `IMAGE_SCN_CNT_CODE
+  section_has_characteristic section_header IMAGE_SCN_CNT_CODE
 
 let section_contains_data section_header =
-  section_has_characteristic section_header `IMAGE_SCN_CNT_INITIALIZED_DATA
-  || section_has_characteristic section_header `IMAGE_SCN_CNT_UNINITIALIZED_DATA
+  section_has_characteristic section_header IMAGE_SCN_CNT_INITIALIZED_DATA
+  || section_has_characteristic section_header IMAGE_SCN_CNT_UNINITIALIZED_DATA
 
 let section_is_discardable section_header =
-  section_has_characteristic section_header `IMAGE_SCN_MEM_DISCARDABLE
+  section_has_characteristic section_header IMAGE_SCN_MEM_DISCARDABLE
 
 let section_contents (buf : Buffer.t) (sh : section_header) : Buffer.t =
-  let offset = Unsigned.UInt32.to_int sh.pointer_to_raw_data in
-  let size = Unsigned.UInt32.to_int sh.size_of_raw_data in
+  let open Unsigned in
+  let offset = UInt32.to_int sh.pointer_to_raw_data in
+  let size = UInt32.to_int sh.size_of_raw_data in
   Bigarray.Array1.sub buf offset size
+
+(* Find the section whose virtual address range contains [rva]. *)
+let section_at_rva sections rva =
+  let open Unsigned in
+  Array.find_opt
+    (fun (sh : section_header) ->
+      let sec_rva = UInt32.to_int sh.virtual_address in
+      let sec_size = UInt32.to_int sh.virtual_size in
+      rva >= sec_rva && rva < sec_rva + sec_size)
+    sections
+
+(* Translate an image-relative virtual address to a file offset, if [rva]
+   falls within a section. *)
+let rva_to_offset sections rva =
+  match section_at_rva sections rva with
+  | None -> None
+  | Some (sh : section_header) ->
+      let sec_rva = Unsigned.UInt32.to_int sh.virtual_address in
+      Some (Unsigned.UInt32.to_int sh.pointer_to_raw_data + rva - sec_rva)
 
 (** {2 Debug Directory}
 
@@ -639,8 +615,8 @@ type debug_directory_entry = {
 type codeview_info = {
   cv_signature : string;  (** "RSDS" for PDB 7.0 *)
   guid : string;  (** 16-byte GUID *)
-  age : u32;
-  pdb_path : string;
+  age : u32;  (** PDB age (revision counter), paired with [guid] to match *)
+  pdb_path : string;  (** Path to the external .pdb file *)
 }
 
 let parse_debug_directory (buf : Buffer.t) (pe_obj : pe_object) :
@@ -655,39 +631,23 @@ let parse_debug_directory (buf : Buffer.t) (pe_obj : pe_object) :
           let size = Unsigned.UInt32.to_int dd.size in
           if rva = 0 || size = 0 then []
           else
-            (* Find which section contains this RVA *)
-            let file_offset =
-              let found = ref None in
-              Array.iter
-                (fun (sh : section_header) ->
-                  let sec_rva = Unsigned.UInt32.to_int sh.virtual_address in
-                  let sec_size = Unsigned.UInt32.to_int sh.virtual_size in
-                  if rva >= sec_rva && rva < sec_rva + sec_size then
-                    found :=
-                      Some
-                        (Unsigned.UInt32.to_int sh.pointer_to_raw_data
-                        + rva - sec_rva))
-                pe_obj.section_headers;
-              !found
-            in
-            match file_offset with
+            match rva_to_offset pe_obj.section_headers rva with
             | None -> []
             | Some offset ->
                 let cursor = Buffer.cursor ~at:offset buf in
                 let entry_size = 28 in
                 let count = size / entry_size in
                 List.init count (fun _ ->
-                    let characteristics = Buffer.Read.u32 cursor in
-                    let time_date_stamp = Buffer.Read.u32 cursor in
-                    let major_version = Buffer.Read.u16 cursor in
-                    let minor_version = Buffer.Read.u16 cursor in
-                    let type_raw =
-                      Buffer.Read.u32 cursor |> Unsigned.UInt32.to_int
-                    in
+                    let open Buffer.Read in
+                    let characteristics = u32 cursor in
+                    let time_date_stamp = u32 cursor in
+                    let major_version = u16 cursor in
+                    let minor_version = u16 cursor in
+                    let type_raw = u32 cursor |> Unsigned.UInt32.to_int in
                     let debug_type = debug_type_of_int type_raw in
-                    let size_of_data = Buffer.Read.u32 cursor in
-                    let address_of_raw_data = Buffer.Read.u32 cursor in
-                    let pointer_to_raw_data = Buffer.Read.u32 cursor in
+                    let size_of_data = u32 cursor in
+                    let address_of_raw_data = u32 cursor in
+                    let pointer_to_raw_data = u32 cursor in
                     {
                       characteristics;
                       time_date_stamp;
@@ -701,23 +661,19 @@ let parse_debug_directory (buf : Buffer.t) (pe_obj : pe_object) :
 
 let parse_codeview_info (buf : Buffer.t) (entry : debug_directory_entry) :
     codeview_info option =
-  let offset = Unsigned.UInt32.to_int entry.pointer_to_raw_data in
-  let size = Unsigned.UInt32.to_int entry.size_of_data in
+  let open Unsigned in
+  let offset = UInt32.to_int entry.pointer_to_raw_data in
+  let size = UInt32.to_int entry.size_of_data in
   if offset = 0 || size < 24 then None
   else
+    let open Buffer.Read in
     let cursor = Buffer.cursor ~at:offset buf in
-    let cv_signature = Buffer.Read.fixed_string cursor 4 in
+    let cv_signature = fixed_string cursor 4 in
     if cv_signature = "RSDS" then
-      let guid = Buffer.Read.fixed_string cursor 16 in
-      let age = Buffer.Read.u32 cursor in
+      let guid = fixed_string cursor 16 in
+      let age = u32 cursor in
       let remaining = size - 24 in
-      let pdb_path_raw = Buffer.Read.fixed_string cursor remaining in
-      (* Trim null terminator *)
-      let pdb_path =
-        match String.index_opt pdb_path_raw '\000' with
-        | Some i -> String.sub pdb_path_raw 0 i
-        | None -> pdb_path_raw
-      in
+      let pdb_path = string_until_nul (fixed_string cursor remaining) in
       Some { cv_signature; guid; age; pdb_path }
     else None
 
@@ -741,30 +697,32 @@ type runtime_function = {
   unwind_info_address : u32;
 }
 
-let parse_pdata (buf : Buffer.t) (sh : section_header) :
-    runtime_function array =
-  let offset = Unsigned.UInt32.to_int sh.pointer_to_raw_data in
-  let size = Unsigned.UInt32.to_int sh.size_of_raw_data in
+let parse_pdata (buf : Buffer.t) (sh : section_header) : runtime_function array
+    =
+  let open Unsigned in
+  let offset = UInt32.to_int sh.pointer_to_raw_data in
+  let size = UInt32.to_int sh.size_of_raw_data in
   let count = size / 12 in
   let cursor = Buffer.cursor ~at:offset buf in
   Array.init count (fun _ ->
-      let begin_address = Buffer.Read.u32 cursor in
-      let end_address = Buffer.Read.u32 cursor in
-      let unwind_info_address = Buffer.Read.u32 cursor in
+      let open Buffer.Read in
+      let begin_address = u32 cursor in
+      let end_address = u32 cursor in
+      let unwind_info_address = u32 cursor in
       { begin_address; end_address; unwind_info_address })
 
 let write_u32_le_pe buf v =
-  Stdlib.Buffer.add_char buf (Char.chr (v land 0xFF));
-  Stdlib.Buffer.add_char buf (Char.chr ((v lsr 8) land 0xFF));
-  Stdlib.Buffer.add_char buf (Char.chr ((v lsr 16) land 0xFF));
-  Stdlib.Buffer.add_char buf (Char.chr ((v lsr 24) land 0xFF))
+  let open Stdlib.Buffer in
+  add_char buf (Char.chr (v land 0xFF));
+  add_char buf (Char.chr ((v lsr 8) land 0xFF));
+  add_char buf (Char.chr ((v lsr 16) land 0xFF));
+  add_char buf (Char.chr ((v lsr 24) land 0xFF))
 
-let write_pdata (buf : Stdlib.Buffer.t) (entries : runtime_function list) :
-    unit =
+let write_pdata (buf : Stdlib.Buffer.t) (entries : runtime_function list) : unit
+    =
   List.iter
     (fun e ->
       write_u32_le_pe buf (Unsigned.UInt32.to_int e.begin_address);
       write_u32_le_pe buf (Unsigned.UInt32.to_int e.end_address);
       write_u32_le_pe buf (Unsigned.UInt32.to_int e.unwind_info_address))
     entries
-

@@ -11,10 +11,10 @@
   (run %{exe:test_leb128.exe})))
 
 (test
- (name test_pe_unwind)
+ (name test_pe)
  (libraries object integers alcotest)
  (action
-  (run %{exe:test_pe_unwind.exe})))
+  (run %{exe:test_pe.exe})))
 
 (test
  (name test_fat)

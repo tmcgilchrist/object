@@ -14,7 +14,8 @@ type format = ELF | MACHO | PE
 
 type section = {
   name : string;
-  size : u64;
+  size : u64;  (** Size in memory *)
+  file_size : u64;  (** Size on disk at [offset]; may be 0 (e.g. PE .bss) *)
   address : u64;
   offset : u64 option;  (** File offset, if available *)
   section_type : string;  (** Format-specific type description *)
@@ -69,6 +70,10 @@ val format : t -> format
 (** Get format-specific information *)
 
 val architecture : t -> arch
+
+val arch_to_string : arch -> string
+(** [arch_to_string arch] renders a short architecture name, e.g. ["x86_64"]. *)
+
 val is_64bit : t -> bool
 val is_executable : t -> bool
 

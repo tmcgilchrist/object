@@ -10,6 +10,7 @@ type format = ELF | MACHO | PE
 type section = {
   name : string;
   size : u64;
+  file_size : u64;
   address : u64;
   offset : u64 option;
   section_type : string;
@@ -37,6 +38,16 @@ type t = {
   segments : segment array;
   all_sections : section array;
 }
+
+let arch_to_string (a : arch) =
+  match a with
+  | `X86 -> "x86"
+  | `X86_64 -> "x86_64"
+  | `ARM -> "arm"
+  | `ARM64 -> "arm64"
+  | `POWERPC -> "powerpc"
+  | `POWERPC64 -> "powerpc64"
+  | `Unknown n -> Printf.sprintf "unknown(%d)" n
 
 (** Convert Mach-O CPU type to generic arch *)
 let macho_cpu_type_to_arch = function
@@ -74,6 +85,7 @@ let macho_section_to_generic (sec : Macho.section) : section =
   {
     name = sec.sec_sectname;
     size = sec.sec_size;
+    file_size = sec.sec_size;
     address = sec.sec_addr;
     offset = Some (Unsigned.UInt64.of_uint32 sec.sec_offset);
     section_type;
@@ -91,6 +103,7 @@ let elf_section_to_generic (sec : Elf.section) : section =
   {
     name = sec.sh_name_str;
     size = sec.sh_size;
+    file_size = sec.sh_size;
     address = sec.sh_addr;
     offset = Some sec.sh_offset;
     section_type;
@@ -224,7 +237,7 @@ let parse_pe (buf : Buffer.t) : t =
   let generic_header =
     {
       format = PE;
-      architecture = (Pe.get_architecture pe_obj :> arch);
+      architecture = (Pe.machine_to_arch pe_obj.coff_header.machine :> arch);
       entry_point = Pe.entry_point pe_obj;
       is_executable = Pe.is_executable pe_obj;
       is_64bit = Pe.is_64bit pe_obj;
@@ -235,17 +248,14 @@ let parse_pe (buf : Buffer.t) : t =
       (fun (sh : Pe.section_header) ->
         {
           name = sh.name;
-          size = Unsigned.UInt64.of_int (Unsigned.UInt32.to_int sh.virtual_size);
-          address =
-            Unsigned.UInt64.of_int (Unsigned.UInt32.to_int sh.virtual_address);
-          offset =
-            Some
-              (Unsigned.UInt64.of_int
-                 (Unsigned.UInt32.to_int sh.pointer_to_raw_data));
+          size = u32_to_u64 sh.virtual_size;
+          file_size = u32_to_u64 sh.size_of_raw_data;
+          address = u32_to_u64 sh.virtual_address;
+          offset = Some (u32_to_u64 sh.pointer_to_raw_data);
           section_type =
             Pe.section_characteristics_to_type_string sh.characteristics;
         })
-      (Pe.sections pe_obj)
+      pe_obj.section_headers
   in
   { header = generic_header; segments = [||]; all_sections = generic_sections }
 
@@ -270,7 +280,7 @@ let section_contents buf (_t : t) (section : section) =
   | Some offset ->
       Bigarray.Array1.sub buf
         (Unsigned.UInt64.to_int offset)
-        (Unsigned.UInt64.to_int section.size)
+        (Unsigned.UInt64.to_int section.file_size)
   | None -> invalid_arg "Section has no file offset"
 
 let format t = t.header.format

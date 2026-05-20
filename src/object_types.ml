@@ -15,3 +15,8 @@ type u128 = int
    https://github.com/ocaml/ocaml/pull/13890
    https://github.com/andrenth/ocaml-stdint
  *)
+
+(** Widening conversions used when reading fixed-width fields. *)
+
+let u32_to_int : u32 -> int = Unsigned.UInt32.to_int
+let u32_to_u64 : u32 -> u64 = Unsigned.UInt64.of_uint32
