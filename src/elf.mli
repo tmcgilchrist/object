@@ -449,16 +449,16 @@ val read_auxiliary_vector : Buffer.t -> auxiliary_vector list
 
     {2 Usage Examples}
     {[
-      (* Read default symbol table (tries .symtab first, falls back to .dynsym) *)
-      let symbols = read_symbol_table buffer header sections
+    (* Read default symbol table (tries .symtab first, falls back to .dynsym) *)
+    let symbols = read_symbol_table buffer header sections
 
-      (* Read static symbols explicitly *)
-      let static_symbols =
-        read_symbol_table ~symtab_name:".symtab" buffer header sections
+    (* Read static symbols explicitly *)
+    let static_symbols =
+      read_symbol_table ~symtab_name:".symtab" buffer header sections
 
-      (* Read dynamic symbols explicitly *)
-      let dynamic_symbols =
-        read_symbol_table ~symtab_name:".dynsym" buffer header sections
+    (* Read dynamic symbols explicitly *)
+    let dynamic_symbols =
+      read_symbol_table ~symtab_name:".dynsym" buffer header sections
     ]} *)
 
 (** ELF symbol table entry *)
