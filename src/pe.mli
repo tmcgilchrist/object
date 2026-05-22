@@ -349,21 +349,147 @@ type section_header = {
 }
 (** Section header structure (40 bytes) describing individual sections *)
 
+type string_table
+(** The COFF string table, holding section and symbol names longer than 8 bytes.
+*)
+
+val string_table_get : string_table -> int -> string
+(** [string_table_get tbl offset] returns the NUL-terminated name at [offset],
+    measured from the table start (the first string is at offset 4). *)
+
 type pe_object = {
   coff_header : coff_header;  (** COFF file header *)
   optional_header : optional_header option;
-      (** PE optional header (if present) *)
+      (** PE optional header (absent for COFF object files) *)
+  string_table : string_table option;
+      (** COFF string table, if the file has a symbol table *)
   section_headers : section_header array;  (** Array of section headers *)
 }
-(** Complete PE object structure containing all parsed components *)
+(** Complete PE/COFF object structure containing all parsed components *)
 
 val is_pe : Buffer.t -> bool
-(** [is_pe buffer] returns [true] if the buffer contains a valid PE file. Checks
-    for DOS signature "MZ" and PE signature "PE\0\0". *)
+(** [is_pe buffer] returns [true] if the buffer contains a PE image. Checks for
+    the DOS signature "MZ" and PE signature "PE\0\0". *)
+
+val is_coff : Buffer.t -> bool
+(** [is_coff buffer] returns [true] for a bare COFF object file (no DOS/PE
+    header) whose first field is a recognised machine type. *)
 
 val read : Buffer.t -> pe_object
-(** [read buffer] parses a PE file from the buffer and returns the complete PE
-    object structure with all headers and sections. *)
+(** [read buffer] parses a PE image or a bare COFF object file and returns the
+    complete object structure with all headers and sections. *)
+
+(** {2 Symbol Table} *)
+
+(** COFF storage class of a symbol. *)
+type storage_class =
+  | IMAGE_SYM_CLASS_NULL
+  | IMAGE_SYM_CLASS_AUTOMATIC
+  | IMAGE_SYM_CLASS_EXTERNAL
+  | IMAGE_SYM_CLASS_STATIC
+  | IMAGE_SYM_CLASS_REGISTER
+  | IMAGE_SYM_CLASS_EXTERNAL_DEF
+  | IMAGE_SYM_CLASS_LABEL
+  | IMAGE_SYM_CLASS_UNDEFINED_LABEL
+  | IMAGE_SYM_CLASS_MEMBER_OF_STRUCT
+  | IMAGE_SYM_CLASS_ARGUMENT
+  | IMAGE_SYM_CLASS_STRUCT_TAG
+  | IMAGE_SYM_CLASS_MEMBER_OF_UNION
+  | IMAGE_SYM_CLASS_UNION_TAG
+  | IMAGE_SYM_CLASS_TYPE_DEFINITION
+  | IMAGE_SYM_CLASS_UNDEFINED_STATIC
+  | IMAGE_SYM_CLASS_ENUM_TAG
+  | IMAGE_SYM_CLASS_MEMBER_OF_ENUM
+  | IMAGE_SYM_CLASS_REGISTER_PARAM
+  | IMAGE_SYM_CLASS_BIT_FIELD
+  | IMAGE_SYM_CLASS_BLOCK
+  | IMAGE_SYM_CLASS_FUNCTION
+  | IMAGE_SYM_CLASS_END_OF_STRUCT
+  | IMAGE_SYM_CLASS_FILE
+  | IMAGE_SYM_CLASS_SECTION
+  | IMAGE_SYM_CLASS_WEAK_EXTERNAL
+  | IMAGE_SYM_CLASS_CLR_TOKEN
+  | IMAGE_SYM_CLASS_END_OF_FUNCTION
+  | IMAGE_SYM_CLASS_UNKNOWN of u8
+
+(** Base type of a symbol (low nibble of the Type field). *)
+type symbol_base_type =
+  | IMAGE_SYM_TYPE_NULL
+  | IMAGE_SYM_TYPE_VOID
+  | IMAGE_SYM_TYPE_CHAR
+  | IMAGE_SYM_TYPE_SHORT
+  | IMAGE_SYM_TYPE_INT
+  | IMAGE_SYM_TYPE_LONG
+  | IMAGE_SYM_TYPE_FLOAT
+  | IMAGE_SYM_TYPE_DOUBLE
+  | IMAGE_SYM_TYPE_STRUCT
+  | IMAGE_SYM_TYPE_UNION
+  | IMAGE_SYM_TYPE_ENUM
+  | IMAGE_SYM_TYPE_MOE
+  | IMAGE_SYM_TYPE_BYTE
+  | IMAGE_SYM_TYPE_WORD
+  | IMAGE_SYM_TYPE_UINT
+  | IMAGE_SYM_TYPE_DWORD
+  | IMAGE_SYM_TYPE_UNKNOWN of int
+
+(** Derived ("complex") type of a symbol (next nibble of the Type field). *)
+type symbol_complex_type =
+  | IMAGE_SYM_DTYPE_NULL
+  | IMAGE_SYM_DTYPE_POINTER
+  | IMAGE_SYM_DTYPE_FUNCTION
+  | IMAGE_SYM_DTYPE_ARRAY
+  | IMAGE_SYM_DTYPE_UNKNOWN of int
+
+type symbol_type = {
+  base_type : symbol_base_type;
+  complex_type : symbol_complex_type;
+      (** [IMAGE_SYM_DTYPE_FUNCTION] = function *)
+}
+(** A decoded symbol Type field. *)
+
+(** A decoded auxiliary symbol record, interpreted from the storage class of the
+    primary symbol it follows. *)
+type aux =
+  | Aux_file of string  (** [.file] symbol: the source file name *)
+  | Aux_function_definition of {
+      tag_index : u32;
+      total_size : u32;
+      pointer_to_line_number : u32;
+      pointer_to_next_function : u32;
+    }
+  | Aux_function_boundary of {
+      line_number : int;
+      pointer_to_next_function : u32;
+    }  (** [.bf]/[.ef] line-number records *)
+  | Aux_weak_external of { tag_index : u32; characteristics : u32 }
+  | Aux_section_definition of {
+      length : u32;
+      number_of_relocations : int;
+      number_of_line_numbers : int;
+      checksum : u32;
+      number : int;
+      selection : int;
+    }
+  | Aux_unknown of string  (** Raw 18 bytes for an undecoded record *)
+
+type symbol = {
+  sym_name : string;
+      (** Symbol name, resolved from the string table if longer than 8 bytes *)
+  sym_value : u32;  (** Symbol value; meaning depends on section and class *)
+  sym_section_number : int;
+      (** 1-based section index, or 0 (undefined), -1 (absolute), -2 (debug) *)
+  sym_type : symbol_type;  (** Decoded symbol type *)
+  sym_storage_class : storage_class;  (** Storage class *)
+  sym_number_of_aux_symbols : u8;
+      (** Count of raw auxiliary records following this one *)
+  sym_aux : aux list;  (** Decoded auxiliary records *)
+}
+(** A primary COFF symbol-table record. *)
+
+val read_symbols : Buffer.t -> pe_object -> symbol array
+(** [read_symbols buf pe_obj] reads the COFF symbol table, returning the primary
+    records with their auxiliary records decoded. Empty when there is no symbol
+    table. *)
 
 val machine_to_arch :
   machine_type -> [ `X86 | `X86_64 | `ARM | `ARM64 | `Unknown of int ]

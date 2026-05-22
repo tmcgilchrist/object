@@ -204,6 +204,35 @@ let check_nt_signature cursor =
 let string_until_nul s =
   match String.index_opt s '\000' with Some i -> String.sub s 0 i | None -> s
 
+(* The COFF string table holds names longer than 8 bytes: a 4-byte length
+   prefix followed by NUL-terminated strings. We keep the bytes after the
+   prefix, so a reference into the table (which counts the prefix) resolves at
+   [offset - 4]. *)
+type string_table = string
+
+let string_table_get (tbl : string_table) offset =
+  let i = offset - 4 in
+  if i < 0 || i >= String.length tbl then ""
+  else
+    let stop =
+      match String.index_from_opt tbl i '\000' with
+      | Some j -> j
+      | None -> String.length tbl
+    in
+    String.sub tbl i (stop - i)
+
+(* A section name of the form "/N" refers to byte offset N in the string table;
+   anything else is the literal 8-byte name. *)
+let resolve_section_name string_table raw =
+  if String.length raw >= 2 && raw.[0] = '/' then
+    match string_table with
+    | Some tbl -> (
+        match int_of_string_opt (String.sub raw 1 (String.length raw - 1)) with
+        | Some n -> string_table_get tbl n
+        | None -> raw)
+    | None -> raw
+  else raw
+
 let is_pe buffer =
   try
     let cursor = Buffer.cursor buffer in
@@ -229,11 +258,20 @@ let find_pe_header_offset buffer =
   let pe_header_offset = Buffer.Read.u32 cursor in
   Unsigned.UInt32.to_int pe_header_offset
 
+(* A bare COFF object has no DOS/PE header; it begins with a COFF header whose
+   first field is a recognised machine type. *)
+let is_coff buffer =
+  try
+    let cursor = Buffer.cursor buffer in
+    Buffer.ensure cursor 2 "COFF machine type";
+    match machine_type_of_u16 (Buffer.Read.u16 cursor) with
+    | IMAGE_FILE_MACHINE_UNKNOWN _ -> false
+    | _ -> true
+  with Buffer.Invalid_format _ -> false
+
 let read_coff_header cursor =
   let open Buffer.Read in
-  Buffer.ensure cursor 24 "COFF header";
-  if not (check_nt_signature cursor) then
-    Buffer.invalid_format "Not a PE file: missing PE signature";
+  Buffer.ensure cursor 20 "COFF header";
   let machine = machine_type_of_u16 (u16 cursor) in
   let number_of_sections = u16 cursor in
   let time_date_stamp = u32 cursor in
@@ -429,10 +467,11 @@ let read_optional_header cursor optional_header_size =
     data_directory;
   }
 
-let read_section_header cursor =
+let read_section_header ?string_table cursor =
   let open Buffer.Read in
   Buffer.ensure cursor 40 "Section header";
-  let name = string_until_nul (fixed_string cursor 8) in
+  let raw_name = string_until_nul (fixed_string cursor 8) in
+  let name = resolve_section_name string_table raw_name in
   let virtual_size = u32 cursor in
   let virtual_address = u32 cursor in
   let size_of_raw_data = u32 cursor in
@@ -456,9 +495,9 @@ let read_section_header cursor =
     characteristics;
   }
 
-let read_section_headers cursor number_of_sections =
+let read_section_headers ?string_table cursor number_of_sections =
   Array.init (Unsigned.UInt16.to_int number_of_sections) (fun _ ->
-      read_section_header cursor)
+      read_section_header ?string_table cursor)
 
 let machine_to_arch = function
   | IMAGE_FILE_MACHINE_I386 -> `X86
@@ -482,25 +521,347 @@ let section_characteristics_to_type_string characteristics =
   else if has_char IMAGE_SCN_LNK_COMDAT then "COMDAT"
   else "UNKNOWN"
 
+(* The string table immediately follows the symbol table, at
+   [pointer_to_symbol_table + number_of_symbols * 18]. Its first 4 bytes are the
+   total table size (counting those 4 bytes). *)
+let read_string_table buf (coff : coff_header) : string_table option =
+  let symtab = Unsigned.UInt32.to_int coff.pointer_to_symbol_table in
+  if symtab = 0 then None
+  else
+    let nsyms = Unsigned.UInt32.to_int coff.number_of_symbols in
+    let cursor = Buffer.cursor ~at:(symtab + (nsyms * 18)) buf in
+    Buffer.ensure cursor 4 "COFF string table size";
+    let size = Unsigned.UInt32.to_int (Buffer.Read.u32 cursor) in
+    if size <= 4 then Some ""
+    else begin
+      Buffer.ensure cursor (size - 4) "COFF string table";
+      Some (Buffer.Read.fixed_string cursor (size - 4))
+    end
+
 type pe_object = {
   coff_header : coff_header;
   optional_header : optional_header option;
+  string_table : string_table option;
   section_headers : section_header array;
 }
 
 let read buffer =
-  let pe_offset = find_pe_header_offset buffer in
-  let cursor = Buffer.cursor ~at:pe_offset buffer in
+  let cursor =
+    if is_pe buffer then begin
+      let cursor = Buffer.cursor ~at:(find_pe_header_offset buffer) buffer in
+      Buffer.ensure cursor 4 "PE signature";
+      if not (check_nt_signature cursor) then
+        Buffer.invalid_format "Not a PE file: missing PE signature";
+      cursor
+    end
+    else if is_coff buffer then Buffer.cursor buffer
+    else Buffer.invalid_format "Not a PE or COFF file"
+  in
   let coff_header = read_coff_header cursor in
   let optional_header =
     if Unsigned.UInt16.to_int coff_header.size_of_optional_header > 0 then
       Some (read_optional_header cursor coff_header.size_of_optional_header)
     else None
   in
+  let string_table = read_string_table buffer coff_header in
   let section_headers =
-    read_section_headers cursor coff_header.number_of_sections
+    read_section_headers ?string_table cursor coff_header.number_of_sections
   in
-  { coff_header; optional_header; section_headers }
+  { coff_header; optional_header; string_table; section_headers }
+
+(** {2 Symbol Table}
+
+    The COFF symbol table is an array of 18-byte records at
+    [pointer_to_symbol_table]. A primary record may be followed by auxiliary
+    records (all counted by [number_of_symbols]); we return the primary records
+    with their auxiliary records decoded. *)
+
+type storage_class =
+  | IMAGE_SYM_CLASS_NULL
+  | IMAGE_SYM_CLASS_AUTOMATIC
+  | IMAGE_SYM_CLASS_EXTERNAL
+  | IMAGE_SYM_CLASS_STATIC
+  | IMAGE_SYM_CLASS_REGISTER
+  | IMAGE_SYM_CLASS_EXTERNAL_DEF
+  | IMAGE_SYM_CLASS_LABEL
+  | IMAGE_SYM_CLASS_UNDEFINED_LABEL
+  | IMAGE_SYM_CLASS_MEMBER_OF_STRUCT
+  | IMAGE_SYM_CLASS_ARGUMENT
+  | IMAGE_SYM_CLASS_STRUCT_TAG
+  | IMAGE_SYM_CLASS_MEMBER_OF_UNION
+  | IMAGE_SYM_CLASS_UNION_TAG
+  | IMAGE_SYM_CLASS_TYPE_DEFINITION
+  | IMAGE_SYM_CLASS_UNDEFINED_STATIC
+  | IMAGE_SYM_CLASS_ENUM_TAG
+  | IMAGE_SYM_CLASS_MEMBER_OF_ENUM
+  | IMAGE_SYM_CLASS_REGISTER_PARAM
+  | IMAGE_SYM_CLASS_BIT_FIELD
+  | IMAGE_SYM_CLASS_BLOCK
+  | IMAGE_SYM_CLASS_FUNCTION
+  | IMAGE_SYM_CLASS_END_OF_STRUCT
+  | IMAGE_SYM_CLASS_FILE
+  | IMAGE_SYM_CLASS_SECTION
+  | IMAGE_SYM_CLASS_WEAK_EXTERNAL
+  | IMAGE_SYM_CLASS_CLR_TOKEN
+  | IMAGE_SYM_CLASS_END_OF_FUNCTION
+  | IMAGE_SYM_CLASS_UNKNOWN of u8
+
+let storage_class_of_u8 b =
+  match Unsigned.UInt8.to_int b with
+  | 0xff -> IMAGE_SYM_CLASS_END_OF_FUNCTION
+  | 0 -> IMAGE_SYM_CLASS_NULL
+  | 1 -> IMAGE_SYM_CLASS_AUTOMATIC
+  | 2 -> IMAGE_SYM_CLASS_EXTERNAL
+  | 3 -> IMAGE_SYM_CLASS_STATIC
+  | 4 -> IMAGE_SYM_CLASS_REGISTER
+  | 5 -> IMAGE_SYM_CLASS_EXTERNAL_DEF
+  | 6 -> IMAGE_SYM_CLASS_LABEL
+  | 7 -> IMAGE_SYM_CLASS_UNDEFINED_LABEL
+  | 8 -> IMAGE_SYM_CLASS_MEMBER_OF_STRUCT
+  | 9 -> IMAGE_SYM_CLASS_ARGUMENT
+  | 10 -> IMAGE_SYM_CLASS_STRUCT_TAG
+  | 11 -> IMAGE_SYM_CLASS_MEMBER_OF_UNION
+  | 12 -> IMAGE_SYM_CLASS_UNION_TAG
+  | 13 -> IMAGE_SYM_CLASS_TYPE_DEFINITION
+  | 14 -> IMAGE_SYM_CLASS_UNDEFINED_STATIC
+  | 15 -> IMAGE_SYM_CLASS_ENUM_TAG
+  | 16 -> IMAGE_SYM_CLASS_MEMBER_OF_ENUM
+  | 17 -> IMAGE_SYM_CLASS_REGISTER_PARAM
+  | 18 -> IMAGE_SYM_CLASS_BIT_FIELD
+  | 100 -> IMAGE_SYM_CLASS_BLOCK
+  | 101 -> IMAGE_SYM_CLASS_FUNCTION
+  | 102 -> IMAGE_SYM_CLASS_END_OF_STRUCT
+  | 103 -> IMAGE_SYM_CLASS_FILE
+  | 104 -> IMAGE_SYM_CLASS_SECTION
+  | 105 -> IMAGE_SYM_CLASS_WEAK_EXTERNAL
+  | 107 -> IMAGE_SYM_CLASS_CLR_TOKEN
+  | _ -> IMAGE_SYM_CLASS_UNKNOWN b
+
+(* The symbol Type field splits into a base type (low nibble) and a derived,
+   "complex" type (next nibble); a function has complex type FUNCTION. *)
+type symbol_base_type =
+  | IMAGE_SYM_TYPE_NULL
+  | IMAGE_SYM_TYPE_VOID
+  | IMAGE_SYM_TYPE_CHAR
+  | IMAGE_SYM_TYPE_SHORT
+  | IMAGE_SYM_TYPE_INT
+  | IMAGE_SYM_TYPE_LONG
+  | IMAGE_SYM_TYPE_FLOAT
+  | IMAGE_SYM_TYPE_DOUBLE
+  | IMAGE_SYM_TYPE_STRUCT
+  | IMAGE_SYM_TYPE_UNION
+  | IMAGE_SYM_TYPE_ENUM
+  | IMAGE_SYM_TYPE_MOE
+  | IMAGE_SYM_TYPE_BYTE
+  | IMAGE_SYM_TYPE_WORD
+  | IMAGE_SYM_TYPE_UINT
+  | IMAGE_SYM_TYPE_DWORD
+  | IMAGE_SYM_TYPE_UNKNOWN of int
+
+type symbol_complex_type =
+  | IMAGE_SYM_DTYPE_NULL
+  | IMAGE_SYM_DTYPE_POINTER
+  | IMAGE_SYM_DTYPE_FUNCTION
+  | IMAGE_SYM_DTYPE_ARRAY
+  | IMAGE_SYM_DTYPE_UNKNOWN of int
+
+type symbol_type = {
+  base_type : symbol_base_type;
+  complex_type : symbol_complex_type;
+}
+
+let symbol_base_type_of_int = function
+  | 0 -> IMAGE_SYM_TYPE_NULL
+  | 1 -> IMAGE_SYM_TYPE_VOID
+  | 2 -> IMAGE_SYM_TYPE_CHAR
+  | 3 -> IMAGE_SYM_TYPE_SHORT
+  | 4 -> IMAGE_SYM_TYPE_INT
+  | 5 -> IMAGE_SYM_TYPE_LONG
+  | 6 -> IMAGE_SYM_TYPE_FLOAT
+  | 7 -> IMAGE_SYM_TYPE_DOUBLE
+  | 8 -> IMAGE_SYM_TYPE_STRUCT
+  | 9 -> IMAGE_SYM_TYPE_UNION
+  | 10 -> IMAGE_SYM_TYPE_ENUM
+  | 11 -> IMAGE_SYM_TYPE_MOE
+  | 12 -> IMAGE_SYM_TYPE_BYTE
+  | 13 -> IMAGE_SYM_TYPE_WORD
+  | 14 -> IMAGE_SYM_TYPE_UINT
+  | 15 -> IMAGE_SYM_TYPE_DWORD
+  | n -> IMAGE_SYM_TYPE_UNKNOWN n
+
+let symbol_complex_type_of_int = function
+  | 0 -> IMAGE_SYM_DTYPE_NULL
+  | 1 -> IMAGE_SYM_DTYPE_POINTER
+  | 2 -> IMAGE_SYM_DTYPE_FUNCTION
+  | 3 -> IMAGE_SYM_DTYPE_ARRAY
+  | n -> IMAGE_SYM_DTYPE_UNKNOWN n
+
+let symbol_type_of_u16 t =
+  let t = Unsigned.UInt16.to_int t in
+  {
+    base_type = symbol_base_type_of_int (t land 0xf);
+    complex_type = symbol_complex_type_of_int ((t lsr 4) land 0xf);
+  }
+
+(** An auxiliary symbol record, decoded according to the storage class of the
+    primary symbol it follows. *)
+type aux =
+  | Aux_file of string  (** [.file] symbol: the source file name *)
+  | Aux_function_definition of {
+      tag_index : u32;
+      total_size : u32;
+      pointer_to_line_number : u32;
+      pointer_to_next_function : u32;
+    }
+  | Aux_function_boundary of {
+      line_number : int;
+      pointer_to_next_function : u32;
+    }  (** [.bf]/[.ef] line-number records *)
+  | Aux_weak_external of { tag_index : u32; characteristics : u32 }
+  | Aux_section_definition of {
+      length : u32;
+      number_of_relocations : int;
+      number_of_line_numbers : int;
+      checksum : u32;
+      number : int;
+      selection : int;
+    }
+  | Aux_unknown of string  (** Raw 18 bytes for an undecoded record *)
+
+type symbol = {
+  sym_name : string;
+  sym_value : u32;
+  sym_section_number : int;
+  sym_type : symbol_type;
+  sym_storage_class : storage_class;
+  sym_number_of_aux_symbols : u8;
+  sym_aux : aux list;
+}
+
+(* The 8-byte name field is either an inline NUL-padded name, or, when its first
+   four bytes are zero, a u32 offset into the string table. *)
+let symbol_name string_table name_field =
+  if
+    String.length name_field >= 8
+    && name_field.[0] = '\000'
+    && name_field.[1] = '\000'
+    && name_field.[2] = '\000'
+    && name_field.[3] = '\000'
+  then
+    let off =
+      Char.code name_field.[4]
+      lor (Char.code name_field.[5] lsl 8)
+      lor (Char.code name_field.[6] lsl 16)
+      lor (Char.code name_field.[7] lsl 24)
+    in
+    match string_table with Some tbl -> string_table_get tbl off | None -> ""
+  else string_until_nul name_field
+
+(* Little-endian field readers over a raw auxiliary record. *)
+let u32_at s off =
+  Unsigned.UInt32.of_int
+    (Char.code s.[off]
+    lor (Char.code s.[off + 1] lsl 8)
+    lor (Char.code s.[off + 2] lsl 16)
+    lor (Char.code s.[off + 3] lsl 24))
+
+let u16_at s off = Char.code s.[off] lor (Char.code s.[off + 1] lsl 8)
+
+(* A [.file] name is the concatenation of its aux records, or a string-table
+   reference when the first four bytes are zero. *)
+let aux_file_name string_table raws =
+  match raws with
+  | first :: _
+    when String.length first >= 8
+         && first.[0] = '\000'
+         && first.[1] = '\000'
+         && first.[2] = '\000'
+         && first.[3] = '\000' -> (
+      let off = Unsigned.UInt32.to_int (u32_at first 4) in
+      match string_table with Some t -> string_table_get t off | None -> "")
+  | _ -> string_until_nul (String.concat "" raws)
+
+let decode_struct_aux sym raw =
+  match sym.sym_storage_class with
+  | IMAGE_SYM_CLASS_EXTERNAL
+    when sym.sym_type.complex_type = IMAGE_SYM_DTYPE_FUNCTION
+         && sym.sym_section_number > 0 ->
+      Aux_function_definition
+        {
+          tag_index = u32_at raw 0;
+          total_size = u32_at raw 4;
+          pointer_to_line_number = u32_at raw 8;
+          pointer_to_next_function = u32_at raw 12;
+        }
+  | IMAGE_SYM_CLASS_FUNCTION ->
+      Aux_function_boundary
+        { line_number = u16_at raw 4; pointer_to_next_function = u32_at raw 12 }
+  | IMAGE_SYM_CLASS_WEAK_EXTERNAL ->
+      Aux_weak_external
+        { tag_index = u32_at raw 0; characteristics = u32_at raw 4 }
+  | IMAGE_SYM_CLASS_STATIC ->
+      Aux_section_definition
+        {
+          length = u32_at raw 0;
+          number_of_relocations = u16_at raw 4;
+          number_of_line_numbers = u16_at raw 6;
+          checksum = u32_at raw 8;
+          number = u16_at raw 12;
+          selection = Char.code raw.[14];
+        }
+  | _ -> Aux_unknown raw
+
+let decode_aux string_table sym raws =
+  match sym.sym_storage_class with
+  | IMAGE_SYM_CLASS_FILE -> [ Aux_file (aux_file_name string_table raws) ]
+  | _ -> List.map (decode_struct_aux sym) raws
+
+let read_symbol_record ?string_table cursor =
+  let open Buffer.Read in
+  Buffer.ensure cursor 18 "COFF symbol record";
+  let name_field = fixed_string cursor 8 in
+  let sym_value = u32 cursor in
+  let section_raw = Unsigned.UInt16.to_int (u16 cursor) in
+  let sym_type = symbol_type_of_u16 (u16 cursor) in
+  let sym_storage_class = storage_class_of_u8 (u8 cursor) in
+  let sym_number_of_aux_symbols = u8 cursor in
+  let sym_section_number =
+    if section_raw >= 0x8000 then section_raw - 0x10000 else section_raw
+  in
+  {
+    sym_name = symbol_name string_table name_field;
+    sym_value;
+    sym_section_number;
+    sym_type;
+    sym_storage_class;
+    sym_number_of_aux_symbols;
+    sym_aux = [];
+  }
+
+let read_symbols buf pe_obj =
+  let coff = pe_obj.coff_header in
+  let string_table = pe_obj.string_table in
+  let symtab = Unsigned.UInt32.to_int coff.pointer_to_symbol_table in
+  if symtab = 0 then [||]
+  else begin
+    let total = Unsigned.UInt32.to_int coff.number_of_symbols in
+    let cursor = Buffer.cursor ~at:symtab buf in
+    let acc = ref [] in
+    let i = ref 0 in
+    while !i < total do
+      let sym = read_symbol_record ?string_table cursor in
+      let aux_count = Unsigned.UInt8.to_int sym.sym_number_of_aux_symbols in
+      let raws = ref [] in
+      for _ = 1 to aux_count do
+        Buffer.ensure cursor 18 "COFF auxiliary symbol record";
+        raws := Buffer.Read.fixed_string cursor 18 :: !raws
+      done;
+      let sym_aux = decode_aux string_table sym (List.rev !raws) in
+      acc := { sym with sym_aux } :: !acc;
+      i := !i + 1 + aux_count
+    done;
+    Array.of_list (List.rev !acc)
+  end
 
 let is_64bit pe_obj =
   match pe_obj.optional_header with
