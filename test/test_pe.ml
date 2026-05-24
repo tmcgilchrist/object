@@ -37,6 +37,10 @@ let buffer_of_string s =
 let u32 n = Unsigned.UInt32.of_int n
 let u64_to_int = Unsigned.UInt64.to_int
 
+(* Pad a name to a fixed-width NUL-padded field. *)
+let pad8 s = s ^ String.make (8 - String.length s) '\000'
+let pad18 s = s ^ String.make (18 - String.length s) '\000'
+
 (* ------------------------------------------------------------------------- *)
 (* PE (Portable Executable) images                                           *)
 (* ------------------------------------------------------------------------- *)
@@ -57,6 +61,7 @@ let entry_rva = 0x1000
 
 (* COFF machine codes written into the headers built below. *)
 let machine_amd64 = 0x8664
+let machine_arm64 = 0xaa64
 let machine_riscv64 = 0x5064
 let machine_arm64ec = 0xa641
 
@@ -310,31 +315,41 @@ let test_pdata_trailing_bytes_ignored () =
 (* COFF object files                                                         *)
 (* ------------------------------------------------------------------------- *)
 
+(* The 20-byte COFF header of a single-section object file (no optional
+   header). *)
+let write_coff_object_header b ?(machine = machine_amd64) ?(symtab = 0)
+    ?(nsyms = 0) () =
+  w16 b machine;
+  w16 b 1 (* number_of_sections *);
+  w32 b 0 (* time_date_stamp *);
+  w32 b symtab (* pointer_to_symbol_table *);
+  w32 b nsyms (* number_of_symbols *);
+  w16 b 0 (* size_of_optional_header *);
+  w16 b 0 (* characteristics *)
+
+(* A 40-byte section header; the fixtures only vary the name and the relocation
+   pointer/count. *)
+let write_section_header b ~name ?(pointer_to_relocations = 0)
+    ?(number_of_relocations = 0) () =
+  B.add_string b (pad8 name);
+  w32 b 0 (* virtual_size *);
+  w32 b 0 (* virtual_address *);
+  w32 b 0 (* size_of_raw_data *);
+  w32 b 0 (* pointer_to_raw_data *);
+  w32 b pointer_to_relocations;
+  w32 b 0 (* pointer_to_line_numbers *);
+  w16 b number_of_relocations;
+  w16 b 0 (* number_of_line_numbers *);
+  w32 b 0x60000020 (* CODE | EXECUTE | READ *)
+
 (* A bare COFF object: a COFF header (no DOS/PE header, no optional header), one
    section whose name "/4" refers into the string table, and a string table
    holding the full name ".debug_info". With no symbols the string table sits
    directly after the section header, at file offset 60. *)
 let build_coff ?(machine = machine_amd64) () =
   let b = B.create 128 in
-  (* COFF header *)
-  w16 b machine;
-  w16 b 1 (* number_of_sections *);
-  w32 b 0 (* time_date_stamp *);
-  w32 b 60 (* pointer_to_symbol_table = string table offset (no symbols) *);
-  w32 b 0 (* number_of_symbols *);
-  w16 b 0 (* size_of_optional_header: none for an object file *);
-  w16 b 0 (* characteristics *);
-  (* Section header with a long, string-table-referenced name. *)
-  B.add_string b ("/4" ^ String.make 6 '\000');
-  w32 b 0 (* virtual_size *);
-  w32 b 0 (* virtual_address *);
-  w32 b 0 (* size_of_raw_data *);
-  w32 b 0 (* pointer_to_raw_data *);
-  w32 b 0 (* pointer_to_relocations *);
-  w32 b 0 (* pointer_to_line_numbers *);
-  w16 b 0 (* number_of_relocations *);
-  w16 b 0 (* number_of_line_numbers *);
-  w32 b 0x60000020 (* CODE | EXECUTE | READ *);
+  write_coff_object_header b ~machine ~symtab:60 ();
+  write_section_header b ~name:"/4" ();
   (* String table: 4-byte size (counting itself) then ".debug_info\0". *)
   let s = ".debug_info\000" in
   w32 b (4 + String.length s);
@@ -383,9 +398,6 @@ let test_coff_string_table () =
 
 (* --- Symbol table --- *)
 
-let pad8 s = s ^ String.make (8 - String.length s) '\000'
-let pad18 s = s ^ String.make (18 - String.length s) '\000'
-
 (* A COFF object whose symbol table exercises: a .file symbol with a filename
    aux record, an external function with a function-definition aux record, a
    long name resolved via the string table, and an undefined symbol. The symbol
@@ -393,25 +405,9 @@ let pad18 s = s ^ String.make (18 - String.length s) '\000'
    records put the string table at offset 168. *)
 let build_coff_with_symbols () =
   let b = B.create 256 in
-  (* COFF header: 6 symbol records (two of which are aux records). *)
-  w16 b machine_amd64;
-  w16 b 1;
-  w32 b 0;
-  w32 b 60 (* pointer_to_symbol_table *);
-  w32 b 6 (* number_of_symbols, counting aux records *);
-  w16 b 0;
-  w16 b 0;
-  (* one minimal .text section *)
-  B.add_string b (pad8 ".text");
-  w32 b 0;
-  w32 b 0;
-  w32 b 0;
-  w32 b 0;
-  w32 b 0;
-  w32 b 0;
-  w16 b 0;
-  w16 b 0;
-  w32 b 0x60000020;
+  (* 6 symbol records, two of which are aux records. *)
+  write_coff_object_header b ~symtab:60 ~nsyms:6 ();
+  write_section_header b ~name:".text" ();
   (* symbol records *)
   let sym name ~value ~section ~typ ~storage ~aux =
     B.add_string b name;
@@ -492,6 +488,61 @@ let test_no_symbols () =
     "image: none" 0
     (Array.length (Pe.read_symbols pbuf (Pe.read pbuf)))
 
+(* --- Relocations --- *)
+
+(* A COFF object with a single section whose relocation table holds [relocs]
+   (each a virtual-address, symbol-index, type triple). The section header sits
+   at offset 20 and the relocation table directly after it, at offset 60. *)
+let build_coff_with_relocations ?(machine = machine_amd64) relocs =
+  let b = B.create 128 in
+  write_coff_object_header b ~machine ();
+  write_section_header b ~name:".text" ~pointer_to_relocations:60
+    ~number_of_relocations:(List.length relocs) ();
+  (* relocation table: 10 bytes each *)
+  List.iter
+    (fun (va, sym, typ) ->
+      w32 b va;
+      w32 b sym;
+      w16 b typ)
+    relocs;
+  buffer_of_string (B.contents b)
+
+let test_coff_relocations () =
+  let buf = build_coff_with_relocations [ (0x10, 5, 0x4); (0x20, 6, 0x1) ] in
+  let coff = Pe.read buf in
+  let relocs = Pe.read_relocations buf coff coff.Pe.section_headers.(0) in
+  Alcotest.(check int) "count" 2 (Array.length relocs);
+  Alcotest.(check int)
+    "reloc 0 va" 0x10
+    (Unsigned.UInt32.to_int relocs.(0).Pe.reloc_virtual_address);
+  Alcotest.(check int)
+    "reloc 0 symbol" 5
+    (Unsigned.UInt32.to_int relocs.(0).Pe.reloc_symbol_table_index);
+  Alcotest.(check bool)
+    "reloc 0 type" true
+    (relocs.(0).Pe.reloc_type = Pe.Reloc_amd64 Pe.IMAGE_REL_AMD64_REL32);
+  Alcotest.(check bool)
+    "reloc 1 type" true
+    (relocs.(1).Pe.reloc_type = Pe.Reloc_amd64 Pe.IMAGE_REL_AMD64_ADDR64)
+
+(* The relocation type is decoded for the file's machine. *)
+let test_coff_relocations_arm64 () =
+  let buf =
+    build_coff_with_relocations ~machine:machine_arm64 [ (0x0, 1, 0x3) ]
+  in
+  let coff = Pe.read buf in
+  let relocs = Pe.read_relocations buf coff coff.Pe.section_headers.(0) in
+  Alcotest.(check bool)
+    "arm64 branch26" true
+    (relocs.(0).Pe.reloc_type = Pe.Reloc_arm64 Pe.IMAGE_REL_ARM64_BRANCH26)
+
+let test_coff_no_relocations () =
+  let buf = build_coff () in
+  let coff = Pe.read buf in
+  Alcotest.(check int)
+    "none" 0
+    (Array.length (Pe.read_relocations buf coff coff.Pe.section_headers.(0)))
+
 let () =
   Alcotest.run "PE/COFF reader"
     [
@@ -531,5 +582,12 @@ let () =
           Alcotest.test_case "symbol table" `Quick test_coff_symbols;
           Alcotest.test_case "auxiliary records" `Quick test_coff_aux_records;
           Alcotest.test_case "no symbol table" `Quick test_no_symbols;
+        ] );
+      ( "COFF: relocations",
+        [
+          Alcotest.test_case "relocation table" `Quick test_coff_relocations;
+          Alcotest.test_case "machine-specific type" `Quick
+            test_coff_relocations_arm64;
+          Alcotest.test_case "no relocations" `Quick test_coff_no_relocations;
         ] );
     ]

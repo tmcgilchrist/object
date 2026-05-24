@@ -863,6 +863,162 @@ let read_symbols buf pe_obj =
     Array.of_list (List.rev !acc)
   end
 
+(** {2 Relocations}
+
+    Each section may carry an array of 10-byte relocation records at
+    [pointer_to_relocations]. The relocation type is machine-dependent. *)
+
+type amd64_relocation =
+  | IMAGE_REL_AMD64_ABSOLUTE
+  | IMAGE_REL_AMD64_ADDR64
+  | IMAGE_REL_AMD64_ADDR32
+  | IMAGE_REL_AMD64_ADDR32NB
+  | IMAGE_REL_AMD64_REL32
+  | IMAGE_REL_AMD64_REL32_1
+  | IMAGE_REL_AMD64_REL32_2
+  | IMAGE_REL_AMD64_REL32_3
+  | IMAGE_REL_AMD64_REL32_4
+  | IMAGE_REL_AMD64_REL32_5
+  | IMAGE_REL_AMD64_SECTION
+  | IMAGE_REL_AMD64_SECREL
+  | IMAGE_REL_AMD64_SECREL7
+  | IMAGE_REL_AMD64_TOKEN
+  | IMAGE_REL_AMD64_SREL32
+  | IMAGE_REL_AMD64_PAIR
+  | IMAGE_REL_AMD64_SSPAN32
+  | IMAGE_REL_AMD64_UNKNOWN of u16
+
+type i386_relocation =
+  | IMAGE_REL_I386_ABSOLUTE
+  | IMAGE_REL_I386_DIR16
+  | IMAGE_REL_I386_REL16
+  | IMAGE_REL_I386_DIR32
+  | IMAGE_REL_I386_DIR32NB
+  | IMAGE_REL_I386_SEG12
+  | IMAGE_REL_I386_SECTION
+  | IMAGE_REL_I386_SECREL
+  | IMAGE_REL_I386_TOKEN
+  | IMAGE_REL_I386_SECREL7
+  | IMAGE_REL_I386_REL32
+  | IMAGE_REL_I386_UNKNOWN of u16
+
+type arm64_relocation =
+  | IMAGE_REL_ARM64_ABSOLUTE
+  | IMAGE_REL_ARM64_ADDR32
+  | IMAGE_REL_ARM64_ADDR32NB
+  | IMAGE_REL_ARM64_BRANCH26
+  | IMAGE_REL_ARM64_PAGEBASE_REL21
+  | IMAGE_REL_ARM64_REL21
+  | IMAGE_REL_ARM64_PAGEOFFSET_12A
+  | IMAGE_REL_ARM64_PAGEOFFSET_12L
+  | IMAGE_REL_ARM64_SECREL
+  | IMAGE_REL_ARM64_SECREL_LOW12A
+  | IMAGE_REL_ARM64_SECREL_HIGH12A
+  | IMAGE_REL_ARM64_SECREL_LOW12L
+  | IMAGE_REL_ARM64_TOKEN
+  | IMAGE_REL_ARM64_SECTION
+  | IMAGE_REL_ARM64_ADDR64
+  | IMAGE_REL_ARM64_BRANCH19
+  | IMAGE_REL_ARM64_BRANCH14
+  | IMAGE_REL_ARM64_REL32
+  | IMAGE_REL_ARM64_UNKNOWN of u16
+
+type relocation_type =
+  | Reloc_amd64 of amd64_relocation
+  | Reloc_i386 of i386_relocation
+  | Reloc_arm64 of arm64_relocation
+  | Reloc_other of u16  (** A machine without a decoder for its relocations *)
+
+type relocation = {
+  reloc_virtual_address : u32;
+  reloc_symbol_table_index : u32;
+  reloc_type : relocation_type;
+}
+
+let amd64_relocation_of_u16 t =
+  match Unsigned.UInt16.to_int t with
+  | 0x0 -> IMAGE_REL_AMD64_ABSOLUTE
+  | 0x1 -> IMAGE_REL_AMD64_ADDR64
+  | 0x2 -> IMAGE_REL_AMD64_ADDR32
+  | 0x3 -> IMAGE_REL_AMD64_ADDR32NB
+  | 0x4 -> IMAGE_REL_AMD64_REL32
+  | 0x5 -> IMAGE_REL_AMD64_REL32_1
+  | 0x6 -> IMAGE_REL_AMD64_REL32_2
+  | 0x7 -> IMAGE_REL_AMD64_REL32_3
+  | 0x8 -> IMAGE_REL_AMD64_REL32_4
+  | 0x9 -> IMAGE_REL_AMD64_REL32_5
+  | 0xa -> IMAGE_REL_AMD64_SECTION
+  | 0xb -> IMAGE_REL_AMD64_SECREL
+  | 0xc -> IMAGE_REL_AMD64_SECREL7
+  | 0xd -> IMAGE_REL_AMD64_TOKEN
+  | 0xe -> IMAGE_REL_AMD64_SREL32
+  | 0xf -> IMAGE_REL_AMD64_PAIR
+  | 0x10 -> IMAGE_REL_AMD64_SSPAN32
+  | _ -> IMAGE_REL_AMD64_UNKNOWN t
+
+let i386_relocation_of_u16 t =
+  match Unsigned.UInt16.to_int t with
+  | 0x0 -> IMAGE_REL_I386_ABSOLUTE
+  | 0x1 -> IMAGE_REL_I386_DIR16
+  | 0x2 -> IMAGE_REL_I386_REL16
+  | 0x6 -> IMAGE_REL_I386_DIR32
+  | 0x7 -> IMAGE_REL_I386_DIR32NB
+  | 0x9 -> IMAGE_REL_I386_SEG12
+  | 0xa -> IMAGE_REL_I386_SECTION
+  | 0xb -> IMAGE_REL_I386_SECREL
+  | 0xc -> IMAGE_REL_I386_TOKEN
+  | 0xd -> IMAGE_REL_I386_SECREL7
+  | 0x14 -> IMAGE_REL_I386_REL32
+  | _ -> IMAGE_REL_I386_UNKNOWN t
+
+let arm64_relocation_of_u16 t =
+  match Unsigned.UInt16.to_int t with
+  | 0x0 -> IMAGE_REL_ARM64_ABSOLUTE
+  | 0x1 -> IMAGE_REL_ARM64_ADDR32
+  | 0x2 -> IMAGE_REL_ARM64_ADDR32NB
+  | 0x3 -> IMAGE_REL_ARM64_BRANCH26
+  | 0x4 -> IMAGE_REL_ARM64_PAGEBASE_REL21
+  | 0x5 -> IMAGE_REL_ARM64_REL21
+  | 0x6 -> IMAGE_REL_ARM64_PAGEOFFSET_12A
+  | 0x7 -> IMAGE_REL_ARM64_PAGEOFFSET_12L
+  | 0x8 -> IMAGE_REL_ARM64_SECREL
+  | 0x9 -> IMAGE_REL_ARM64_SECREL_LOW12A
+  | 0xa -> IMAGE_REL_ARM64_SECREL_HIGH12A
+  | 0xb -> IMAGE_REL_ARM64_SECREL_LOW12L
+  | 0xc -> IMAGE_REL_ARM64_TOKEN
+  | 0xd -> IMAGE_REL_ARM64_SECTION
+  | 0xe -> IMAGE_REL_ARM64_ADDR64
+  | 0xf -> IMAGE_REL_ARM64_BRANCH19
+  | 0x10 -> IMAGE_REL_ARM64_BRANCH14
+  | 0x11 -> IMAGE_REL_ARM64_REL32
+  | _ -> IMAGE_REL_ARM64_UNKNOWN t
+
+let relocation_type_of_u16 machine t =
+  match machine with
+  | IMAGE_FILE_MACHINE_AMD64 -> Reloc_amd64 (amd64_relocation_of_u16 t)
+  | IMAGE_FILE_MACHINE_I386 -> Reloc_i386 (i386_relocation_of_u16 t)
+  | IMAGE_FILE_MACHINE_ARM64 | IMAGE_FILE_MACHINE_ARM64EC
+  | IMAGE_FILE_MACHINE_ARM64X ->
+      Reloc_arm64 (arm64_relocation_of_u16 t)
+  | _ -> Reloc_other t
+
+let read_relocation machine cursor =
+  let open Buffer.Read in
+  Buffer.ensure cursor 10 "COFF relocation record";
+  let reloc_virtual_address = u32 cursor in
+  let reloc_symbol_table_index = u32 cursor in
+  let reloc_type = relocation_type_of_u16 machine (u16 cursor) in
+  { reloc_virtual_address; reloc_symbol_table_index; reloc_type }
+
+let read_relocations buf pe_obj (sh : section_header) =
+  let offset = Unsigned.UInt32.to_int sh.pointer_to_relocations in
+  let count = Unsigned.UInt16.to_int sh.number_of_relocations in
+  if offset = 0 || count = 0 then [||]
+  else
+    let machine = pe_obj.coff_header.machine in
+    let cursor = Buffer.cursor ~at:offset buf in
+    Array.init count (fun _ -> read_relocation machine cursor)
+
 let is_64bit pe_obj =
   match pe_obj.optional_header with
   | Some opt -> opt.magic = PE32PLUS

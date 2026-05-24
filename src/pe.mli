@@ -491,6 +491,86 @@ val read_symbols : Buffer.t -> pe_object -> symbol array
     records with their auxiliary records decoded. Empty when there is no symbol
     table. *)
 
+(** {2 Relocations} *)
+
+(** AMD64 (x86-64) relocation type. *)
+type amd64_relocation =
+  | IMAGE_REL_AMD64_ABSOLUTE
+  | IMAGE_REL_AMD64_ADDR64
+  | IMAGE_REL_AMD64_ADDR32
+  | IMAGE_REL_AMD64_ADDR32NB
+  | IMAGE_REL_AMD64_REL32
+  | IMAGE_REL_AMD64_REL32_1
+  | IMAGE_REL_AMD64_REL32_2
+  | IMAGE_REL_AMD64_REL32_3
+  | IMAGE_REL_AMD64_REL32_4
+  | IMAGE_REL_AMD64_REL32_5
+  | IMAGE_REL_AMD64_SECTION
+  | IMAGE_REL_AMD64_SECREL
+  | IMAGE_REL_AMD64_SECREL7
+  | IMAGE_REL_AMD64_TOKEN
+  | IMAGE_REL_AMD64_SREL32
+  | IMAGE_REL_AMD64_PAIR
+  | IMAGE_REL_AMD64_SSPAN32
+  | IMAGE_REL_AMD64_UNKNOWN of u16
+
+(** i386 (x86) relocation type. *)
+type i386_relocation =
+  | IMAGE_REL_I386_ABSOLUTE
+  | IMAGE_REL_I386_DIR16
+  | IMAGE_REL_I386_REL16
+  | IMAGE_REL_I386_DIR32
+  | IMAGE_REL_I386_DIR32NB
+  | IMAGE_REL_I386_SEG12
+  | IMAGE_REL_I386_SECTION
+  | IMAGE_REL_I386_SECREL
+  | IMAGE_REL_I386_TOKEN
+  | IMAGE_REL_I386_SECREL7
+  | IMAGE_REL_I386_REL32
+  | IMAGE_REL_I386_UNKNOWN of u16
+
+(** ARM64 relocation type. *)
+type arm64_relocation =
+  | IMAGE_REL_ARM64_ABSOLUTE
+  | IMAGE_REL_ARM64_ADDR32
+  | IMAGE_REL_ARM64_ADDR32NB
+  | IMAGE_REL_ARM64_BRANCH26
+  | IMAGE_REL_ARM64_PAGEBASE_REL21
+  | IMAGE_REL_ARM64_REL21
+  | IMAGE_REL_ARM64_PAGEOFFSET_12A
+  | IMAGE_REL_ARM64_PAGEOFFSET_12L
+  | IMAGE_REL_ARM64_SECREL
+  | IMAGE_REL_ARM64_SECREL_LOW12A
+  | IMAGE_REL_ARM64_SECREL_HIGH12A
+  | IMAGE_REL_ARM64_SECREL_LOW12L
+  | IMAGE_REL_ARM64_TOKEN
+  | IMAGE_REL_ARM64_SECTION
+  | IMAGE_REL_ARM64_ADDR64
+  | IMAGE_REL_ARM64_BRANCH19
+  | IMAGE_REL_ARM64_BRANCH14
+  | IMAGE_REL_ARM64_REL32
+  | IMAGE_REL_ARM64_UNKNOWN of u16
+
+(** A relocation type, decoded according to the COFF machine. *)
+type relocation_type =
+  | Reloc_amd64 of amd64_relocation
+  | Reloc_i386 of i386_relocation
+  | Reloc_arm64 of arm64_relocation
+  | Reloc_other of u16  (** A machine without a decoder for its relocations *)
+
+type relocation = {
+  reloc_virtual_address : u32;  (** Section offset of the item to fix up *)
+  reloc_symbol_table_index : u32;  (** Index of the referenced symbol *)
+  reloc_type : relocation_type;
+}
+(** A COFF relocation record. *)
+
+val read_relocations :
+  Buffer.t -> pe_object -> section_header -> relocation array
+(** [read_relocations buf pe_obj section] reads [section]'s relocation table,
+    decoding the relocation type for the file's machine. Empty when the section
+    has no relocations. *)
+
 val machine_to_arch :
   machine_type -> [ `X86 | `X86_64 | `ARM | `ARM64 | `Unknown of int ]
 (** [machine_to_arch machine] maps a COFF machine type to a generic
