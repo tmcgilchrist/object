@@ -1082,6 +1082,114 @@ let rva_to_offset sections rva =
       let sec_rva = Unsigned.UInt32.to_int sh.virtual_address in
       Some (Unsigned.UInt32.to_int sh.pointer_to_raw_data + rva - sec_rva)
 
+(* A cursor at the file offset of [rva], if it falls within a section. *)
+let cursor_at_rva buf sections rva =
+  match rva_to_offset sections rva with
+  | Some offset -> Some (Buffer.cursor ~at:offset buf)
+  | None -> None
+
+(** {2 Exports}
+
+    A PE image's export table (the IMAGE_DIRECTORY_ENTRY_EXPORT data directory,
+    typically in .edata) lists the symbols the image exposes to others. *)
+
+type export = {
+  export_ordinal : int;
+  export_name : string option;
+      (* None for exports referenced only by ordinal. *)
+  export_address_rva : u32; (* RVA of the export, or of a forwarder string. *)
+}
+
+type export_directory = {
+  dll_name : string;
+  export_time_date_stamp : u32;
+  export_major_version : u16;
+  export_minor_version : u16;
+  ordinal_base : int;
+  exports : export array;
+}
+
+let read_exports buf pe_obj =
+  let open Buffer.Read in
+  let sections = pe_obj.section_headers in
+  let cursor_at rva = cursor_at_rva buf sections rva in
+  let u32_array rva n =
+    match cursor_at rva with
+    | None -> [||]
+    | Some c ->
+        (* Bounds-check before allocating, so a bogus count fails cleanly rather
+           than over-allocating or reading past the buffer. *)
+        Buffer.ensure c (n * 4) "Export table";
+        Array.init n (fun _ -> u32 c)
+  in
+  let string_at rva =
+    match cursor_at rva with
+    | Some c -> ( match zero_string c () with Some s -> s | None -> "")
+    | None -> ""
+  in
+  match pe_obj.optional_header with
+  | None -> None
+  | Some opt -> (
+      match opt.data_directory.export_table with
+      | None -> None
+      | Some dd -> (
+          match cursor_at (Unsigned.UInt32.to_int dd.virtual_address) with
+          | None -> None
+          | Some cursor ->
+              Buffer.ensure cursor 40 "Export directory";
+              ignore (u32 cursor) (* export flags: reserved, must be 0 *);
+              let time_date_stamp = u32 cursor in
+              let major_version = u16 cursor in
+              let minor_version = u16 cursor in
+              let name_rva = Unsigned.UInt32.to_int (u32 cursor) in
+              let ordinal_base = Unsigned.UInt32.to_int (u32 cursor) in
+              let num_addresses = Unsigned.UInt32.to_int (u32 cursor) in
+              let num_names = Unsigned.UInt32.to_int (u32 cursor) in
+              let eat_rva = Unsigned.UInt32.to_int (u32 cursor) in
+              let name_ptr_rva = Unsigned.UInt32.to_int (u32 cursor) in
+              let ordinal_rva = Unsigned.UInt32.to_int (u32 cursor) in
+              let addresses = u32_array eat_rva num_addresses in
+              let name_ptrs = u32_array name_ptr_rva num_names in
+              let ordinals =
+                match cursor_at ordinal_rva with
+                | None -> [||]
+                | Some c ->
+                    Buffer.ensure c (num_names * 2) "Export ordinal table";
+                    Array.init num_names (fun _ -> u16 c)
+              in
+              (* Attach each name to its export-address-table slot. *)
+              let names = Array.make (Array.length addresses) None in
+              Array.iteri
+                (fun j ptr ->
+                  if j < Array.length ordinals then
+                    let idx = Unsigned.UInt16.to_int ordinals.(j) in
+                    if idx < Array.length names then
+                      match cursor_at (Unsigned.UInt32.to_int ptr) with
+                      | Some c -> names.(idx) <- zero_string c ()
+                      | None -> ())
+                name_ptrs;
+              let entries = ref [] in
+              Array.iteri
+                (fun i addr ->
+                  if Unsigned.UInt32.to_int addr <> 0 then
+                    entries :=
+                      {
+                        export_ordinal = ordinal_base + i;
+                        export_name = names.(i);
+                        export_address_rva = addr;
+                      }
+                      :: !entries)
+                addresses;
+              Some
+                {
+                  dll_name = string_at name_rva;
+                  export_time_date_stamp = time_date_stamp;
+                  export_major_version = major_version;
+                  export_minor_version = minor_version;
+                  ordinal_base;
+                  exports = Array.of_list (List.rev !entries);
+                }))
+
 (** {2 Debug Directory}
 
     The debug directory is found via the IMAGE_DIRECTORY_ENTRY_DEBUG data
@@ -1148,10 +1256,9 @@ let parse_debug_directory (buf : Buffer.t) (pe_obj : pe_object) :
           let size = Unsigned.UInt32.to_int dd.size in
           if rva = 0 || size = 0 then []
           else
-            match rva_to_offset pe_obj.section_headers rva with
+            match cursor_at_rva buf pe_obj.section_headers rva with
             | None -> []
-            | Some offset ->
-                let cursor = Buffer.cursor ~at:offset buf in
+            | Some cursor ->
                 let entry_size = 28 in
                 let count = size / entry_size in
                 List.init count (fun _ ->

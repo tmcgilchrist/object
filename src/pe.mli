@@ -571,6 +571,31 @@ val read_relocations :
     decoding the relocation type for the file's machine. Empty when the section
     has no relocations. *)
 
+(** {2 Exports} *)
+
+type export = {
+  export_ordinal : int;  (** Biased ordinal ([ordinal_base + index]) *)
+  export_name : string option;
+      (** Export name, or [None] for ordinal-only exports *)
+  export_address_rva : u32;  (** RVA of the export, or of a forwarder string *)
+}
+(** An entry from a PE image's export table. *)
+
+type export_directory = {
+  dll_name : string;  (** The exporting image's own name *)
+  export_time_date_stamp : u32;
+  export_major_version : u16;
+  export_minor_version : u16;
+  ordinal_base : int;  (** Ordinal of the first export-address-table entry *)
+  exports : export array;
+}
+(** A PE image's export directory. *)
+
+val read_exports : Buffer.t -> pe_object -> export_directory option
+(** [read_exports buf pe_obj] reads the image's export directory (the
+    IMAGE_DIRECTORY_ENTRY_EXPORT data directory), or [None] when the image
+    exports nothing. *)
+
 val machine_to_arch :
   machine_type -> [ `X86 | `X86_64 | `ARM | `ARM64 | `Unknown of int ]
 (** [machine_to_arch machine] maps a COFF machine type to a generic

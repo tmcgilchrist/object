@@ -65,26 +65,9 @@ let machine_arm64 = 0xaa64
 let machine_riscv64 = 0x5064
 let machine_arm64ec = 0xa641
 
-(* Build a minimal PE32+ image. With [truncate_after_fixed] the buffer ends
-   right after [number_of_rva_and_sizes], i.e. before the data directory. *)
-let build_pe ?(machine = machine_amd64) ?(num_sections = 2) ?(num_rva = 16)
-    ?(sections = default_sections) ?(truncate_after_fixed = false) () =
-  let b = B.create 1024 in
-  (* DOS header: "MZ" then e_lfanew at offset 60 pointing to the PE header. *)
-  B.add_string b "MZ";
-  pad_to b 60;
-  w32 b 128;
-  pad_to b 128;
-  B.add_string b "PE\000\000";
-  (* COFF header *)
-  w16 b machine;
-  w16 b num_sections;
-  w32 b 0;
-  w32 b 0;
-  w32 b 0;
-  w16 b 240 (* size_of_optional_header *);
-  w16 b 0x0002 (* IMAGE_FILE_EXECUTABLE_IMAGE *);
-  (* Optional header (PE32+) fixed fields *)
+(* The 112-byte fixed part of a PE32+ optional header, up to and including
+   number_of_rva_and_sizes; the data directory follows. *)
+let write_pe32plus_optional_header b ~num_rva =
   w16 b 0x20b;
   w8 b 14;
   w8 b 0;
@@ -113,7 +96,28 @@ let build_pe ?(machine = machine_amd64) ?(num_sections = 2) ?(num_rva = 16)
   w64 b 0x100000;
   w64 b 0x1000;
   w32 b 0;
-  w32 b num_rva;
+  w32 b num_rva
+
+(* Build a minimal PE32+ image. With [truncate_after_fixed] the buffer ends
+   right after [number_of_rva_and_sizes], i.e. before the data directory. *)
+let build_pe ?(machine = machine_amd64) ?(num_sections = 2) ?(num_rva = 16)
+    ?(sections = default_sections) ?(truncate_after_fixed = false) () =
+  let b = B.create 1024 in
+  (* DOS header: "MZ" then e_lfanew at offset 60 pointing to the PE header. *)
+  B.add_string b "MZ";
+  pad_to b 60;
+  w32 b 128;
+  pad_to b 128;
+  B.add_string b "PE\000\000";
+  (* COFF header *)
+  w16 b machine;
+  w16 b num_sections;
+  w32 b 0;
+  w32 b 0;
+  w32 b 0;
+  w16 b 240 (* size_of_optional_header *);
+  w16 b 0x0002 (* IMAGE_FILE_EXECUTABLE_IMAGE *);
+  write_pe32plus_optional_header b ~num_rva;
   if not truncate_after_fixed then begin
     for _ = 1 to num_rva do
       w32 b 0;
@@ -310,6 +314,116 @@ let test_pdata_trailing_bytes_ignored () =
   in
   Alcotest.(check int) "two whole entries" 2 (Array.length parsed);
   check_entry "entry 1" parsed.(1) ~begin_:4 ~end_:5 ~unwind:6
+
+(* --- Exports --- *)
+
+(* A PE32+ image with one .edata section (virtual address 0x1000, raw data at
+   file offset 0x200) holding an export directory for "foo" (ordinal 1), "bar"
+   (ordinal 2) and an ordinal-only export (ordinal 3). RVA X maps to file offset
+   0x200 + (X - 0x1000). *)
+let build_pe_with_exports () =
+  let b = B.create 1024 in
+  B.add_string b "MZ";
+  pad_to b 60;
+  w32 b 128;
+  pad_to b 128;
+  B.add_string b "PE\000\000";
+  (* COFF header: one section, optional header present *)
+  w16 b machine_amd64;
+  w16 b 1;
+  w32 b 0;
+  w32 b 0;
+  w32 b 0;
+  w16 b 240;
+  w16 b 0x2002 (* DLL | EXECUTABLE_IMAGE *);
+  write_pe32plus_optional_header b ~num_rva:16;
+  (* data directory: entry 0 = export table, rest zero *)
+  w32 b 0x1000 (* export RVA *);
+  w32 b 81 (* export size *);
+  for _ = 2 to 16 do
+    w32 b 0;
+    w32 b 0
+  done;
+  (* section header: .edata *)
+  B.add_string b (pad8 ".edata");
+  w32 b 0x100 (* virtual_size *);
+  w32 b 0x1000 (* virtual_address *);
+  w32 b 0x100 (* size_of_raw_data *);
+  w32 b 0x200 (* pointer_to_raw_data *);
+  w32 b 0;
+  w32 b 0;
+  w16 b 0;
+  w16 b 0;
+  w32 b 0x40000040 (* INITIALIZED_DATA | READ *);
+  (* export data at file offset 0x200 (RVA 0x1000) *)
+  pad_to b 0x200;
+  (* IMAGE_EXPORT_DIRECTORY *)
+  w32 b 0 (* export flags *);
+  w32 b 0 (* time/date stamp *);
+  w16 b 0 (* major *);
+  w16 b 0 (* minor *);
+  w32 b 0x1048 (* DLL name RVA *);
+  w32 b 1 (* ordinal base *);
+  w32 b 3 (* number of address-table entries *);
+  w32 b 2 (* number of name pointers *);
+  w32 b 0x1028 (* export address table RVA *);
+  w32 b 0x1034 (* name pointer table RVA *);
+  w32 b 0x103c (* ordinal table RVA *);
+  (* export address table *)
+  w32 b 0x2000;
+  w32 b 0x2010;
+  w32 b 0x2020;
+  (* name pointer table *)
+  w32 b 0x1040;
+  w32 b 0x1044;
+  (* ordinal table *)
+  w16 b 0;
+  w16 b 1;
+  (* name strings *)
+  B.add_string b "foo\000";
+  B.add_string b "bar\000";
+  B.add_string b "test.dll\000";
+  buffer_of_string (B.contents b)
+
+let test_pe_exports () =
+  let buf = build_pe_with_exports () in
+  match Pe.read_exports buf (Pe.read buf) with
+  | None -> Alcotest.fail "expected an export directory"
+  | Some dir ->
+      Alcotest.(check string) "dll name" "test.dll" dir.Pe.dll_name;
+      Alcotest.(check int) "ordinal base" 1 dir.Pe.ordinal_base;
+      let exports = dir.Pe.exports in
+      Alcotest.(check int) "export count" 3 (Array.length exports);
+      let name i = exports.(i).Pe.export_name in
+      Alcotest.(check (option string)) "export 0 name" (Some "foo") (name 0);
+      Alcotest.(check (option string)) "export 1 name" (Some "bar") (name 1);
+      Alcotest.(check (option string)) "export 2 name" None (name 2);
+      Alcotest.(check int) "export 0 ordinal" 1 exports.(0).Pe.export_ordinal;
+      Alcotest.(check int) "export 2 ordinal" 3 exports.(2).Pe.export_ordinal;
+      Alcotest.(check int)
+        "export 0 address" 0x2000
+        (Unsigned.UInt32.to_int exports.(0).Pe.export_address_rva)
+
+let test_pe_no_exports () =
+  let buf = build_pe () in
+  Alcotest.(check bool) "none" true (Pe.read_exports buf (Pe.read buf) = None)
+
+(* A bogus address-table count (file-controlled) must fail cleanly rather than
+   over-allocate or read past the buffer. The count sits at offset 0x14 in the
+   export directory, which the fixture places at file offset 0x200. *)
+let test_pe_exports_bad_count () =
+  let buf = build_pe_with_exports () in
+  for i = 0 to 3 do
+    buf.{0x214 + i} <- 0xff
+  done;
+  let pe = Pe.read buf in
+  let raised =
+    try
+      ignore (Pe.read_exports buf pe);
+      false
+    with Object.Buffer.Invalid_format _ -> true
+  in
+  Alcotest.(check bool) "huge count raises Invalid_format" true raised
 
 (* ------------------------------------------------------------------------- *)
 (* COFF object files                                                         *)
@@ -565,6 +679,12 @@ let () =
             test_pdata_parse_at_offset;
           Alcotest.test_case ".pdata trailing bytes ignored" `Quick
             test_pdata_trailing_bytes_ignored;
+        ] );
+      ( "PE: exports",
+        [
+          Alcotest.test_case "export table" `Quick test_pe_exports;
+          Alcotest.test_case "no exports" `Quick test_pe_no_exports;
+          Alcotest.test_case "malformed count" `Quick test_pe_exports_bad_count;
         ] );
       ( "COFF: headers",
         [
