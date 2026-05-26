@@ -596,6 +596,24 @@ val read_exports : Buffer.t -> pe_object -> export_directory option
     IMAGE_DIRECTORY_ENTRY_EXPORT data directory), or [None] when the image
     exports nothing. *)
 
+(** {2 Imports} *)
+
+(** A symbol imported from a DLL, either by name (with a hint) or by ordinal. *)
+type imported_symbol =
+  | Import_by_name of { hint : int; name : string }
+  | Import_by_ordinal of int
+
+type import_descriptor = {
+  import_dll_name : string;  (** Name of the imported DLL *)
+  imports : imported_symbol list;  (** Symbols imported from it *)
+}
+(** The imports from a single DLL. *)
+
+val read_imports : Buffer.t -> pe_object -> import_descriptor array
+(** [read_imports buf pe_obj] reads the image's import table (the
+    IMAGE_DIRECTORY_ENTRY_IMPORT data directory), one descriptor per imported
+    DLL. Empty when the image imports nothing. *)
+
 val machine_to_arch :
   machine_type -> [ `X86 | `X86_64 | `ARM | `ARM64 | `Unknown of int ]
 (** [machine_to_arch machine] maps a COFF machine type to a generic

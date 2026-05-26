@@ -317,18 +317,17 @@ let test_pdata_trailing_bytes_ignored () =
 
 (* --- Exports --- *)
 
-(* A PE32+ image with one .edata section (virtual address 0x1000, raw data at
-   file offset 0x200) holding an export directory for "foo" (ordinal 1), "bar"
-   (ordinal 2) and an ordinal-only export (ordinal 3). RVA X maps to file offset
-   0x200 + (X - 0x1000). *)
-let build_pe_with_exports () =
+(* A PE32+ image with one section at RVA 0x1000 (raw data at file offset 0x200,
+   so RVA X maps to 0x200 + (X - 0x1000)) and the data directory entry
+   [entry_index] pointing at it; [write_payload] appends the directory contents
+   at file offset 0x200. *)
+let build_pe_with_data_dir ~entry_index ~section_name write_payload =
   let b = B.create 1024 in
   B.add_string b "MZ";
   pad_to b 60;
   w32 b 128;
   pad_to b 128;
   B.add_string b "PE\000\000";
-  (* COFF header: one section, optional header present *)
   w16 b machine_amd64;
   w16 b 1;
   w32 b 0;
@@ -337,15 +336,18 @@ let build_pe_with_exports () =
   w16 b 240;
   w16 b 0x2002 (* DLL | EXECUTABLE_IMAGE *);
   write_pe32plus_optional_header b ~num_rva:16;
-  (* data directory: entry 0 = export table, rest zero *)
-  w32 b 0x1000 (* export RVA *);
-  w32 b 81 (* export size *);
-  for _ = 2 to 16 do
-    w32 b 0;
-    w32 b 0
+  (* data directory: [entry_index] points at the section, the rest are zero *)
+  for i = 0 to 15 do
+    if i = entry_index then begin
+      w32 b 0x1000;
+      w32 b 0x100
+    end
+    else begin
+      w32 b 0;
+      w32 b 0
+    end
   done;
-  (* section header: .edata *)
-  B.add_string b (pad8 ".edata");
+  B.add_string b (pad8 section_name);
   w32 b 0x100 (* virtual_size *);
   w32 b 0x1000 (* virtual_address *);
   w32 b 0x100 (* size_of_raw_data *);
@@ -355,35 +357,40 @@ let build_pe_with_exports () =
   w16 b 0;
   w16 b 0;
   w32 b 0x40000040 (* INITIALIZED_DATA | READ *);
-  (* export data at file offset 0x200 (RVA 0x1000) *)
   pad_to b 0x200;
-  (* IMAGE_EXPORT_DIRECTORY *)
-  w32 b 0 (* export flags *);
-  w32 b 0 (* time/date stamp *);
-  w16 b 0 (* major *);
-  w16 b 0 (* minor *);
-  w32 b 0x1048 (* DLL name RVA *);
-  w32 b 1 (* ordinal base *);
-  w32 b 3 (* number of address-table entries *);
-  w32 b 2 (* number of name pointers *);
-  w32 b 0x1028 (* export address table RVA *);
-  w32 b 0x1034 (* name pointer table RVA *);
-  w32 b 0x103c (* ordinal table RVA *);
-  (* export address table *)
-  w32 b 0x2000;
-  w32 b 0x2010;
-  w32 b 0x2020;
-  (* name pointer table *)
-  w32 b 0x1040;
-  w32 b 0x1044;
-  (* ordinal table *)
-  w16 b 0;
-  w16 b 1;
-  (* name strings *)
-  B.add_string b "foo\000";
-  B.add_string b "bar\000";
-  B.add_string b "test.dll\000";
+  write_payload b;
   buffer_of_string (B.contents b)
+
+(* An export directory for "foo" (ordinal 1), "bar" (ordinal 2) and an
+   ordinal-only export (ordinal 3). *)
+let build_pe_with_exports () =
+  build_pe_with_data_dir ~entry_index:0 ~section_name:".edata" (fun b ->
+      (* IMAGE_EXPORT_DIRECTORY *)
+      w32 b 0 (* export flags *);
+      w32 b 0 (* time/date stamp *);
+      w16 b 0 (* major *);
+      w16 b 0 (* minor *);
+      w32 b 0x1048 (* DLL name RVA *);
+      w32 b 1 (* ordinal base *);
+      w32 b 3 (* number of address-table entries *);
+      w32 b 2 (* number of name pointers *);
+      w32 b 0x1028 (* export address table RVA *);
+      w32 b 0x1034 (* name pointer table RVA *);
+      w32 b 0x103c (* ordinal table RVA *);
+      (* export address table *)
+      w32 b 0x2000;
+      w32 b 0x2010;
+      w32 b 0x2020;
+      (* name pointer table *)
+      w32 b 0x1040;
+      w32 b 0x1044;
+      (* ordinal table *)
+      w16 b 0;
+      w16 b 1;
+      (* name strings *)
+      B.add_string b "foo\000";
+      B.add_string b "bar\000";
+      B.add_string b "test.dll\000")
 
 let test_pe_exports () =
   let buf = build_pe_with_exports () in
@@ -424,6 +431,54 @@ let test_pe_exports_bad_count () =
     with Object.Buffer.Invalid_format _ -> true
   in
   Alcotest.(check bool) "huge count raises Invalid_format" true raised
+
+(* --- Imports --- *)
+
+(* An import directory importing "func" (hint 7) by name and ordinal 42 from
+   "other.dll". *)
+let build_pe_with_imports () =
+  build_pe_with_data_dir ~entry_index:1 ~section_name:".idata" (fun b ->
+      (* IMAGE_IMPORT_DESCRIPTOR *)
+      w32 b 0x1028 (* OriginalFirstThunk (import lookup table RVA) *);
+      w32 b 0 (* time/date stamp *);
+      w32 b 0 (* forwarder chain *);
+      w32 b 0x1047 (* DLL name RVA *);
+      w32 b 0x1028 (* FirstThunk (import address table RVA) *);
+      (* terminating null descriptor *)
+      w32 b 0;
+      w32 b 0;
+      w32 b 0;
+      w32 b 0;
+      w32 b 0;
+      (* import lookup table (PE32+ u64 thunks) at RVA 0x1028 *)
+      w64 b 0x1040 (* by name: RVA of the hint/name entry *);
+      w32 b 0x2a (* by ordinal 42: low word *);
+      w32 b 0x80000000 (* ordinal flag in the high word *);
+      w64 b 0 (* terminator *);
+      (* hint/name entry at RVA 0x1040 *)
+      w16 b 7 (* hint *);
+      B.add_string b "func\000";
+      (* DLL name at RVA 0x1047 *)
+      B.add_string b "other.dll\000")
+
+let test_pe_imports () =
+  let buf = build_pe_with_imports () in
+  let imports = Pe.read_imports buf (Pe.read buf) in
+  Alcotest.(check int) "descriptor count" 1 (Array.length imports);
+  let d = imports.(0) in
+  Alcotest.(check string) "dll name" "other.dll" d.Pe.import_dll_name;
+  match d.Pe.imports with
+  | [ Pe.Import_by_name { hint; name }; Pe.Import_by_ordinal ord ] ->
+      Alcotest.(check int) "hint" 7 hint;
+      Alcotest.(check string) "name" "func" name;
+      Alcotest.(check int) "ordinal" 42 ord
+  | _ -> Alcotest.fail "unexpected imports"
+
+let test_pe_no_imports () =
+  let buf = build_pe () in
+  Alcotest.(check int)
+    "none" 0
+    (Array.length (Pe.read_imports buf (Pe.read buf)))
 
 (* ------------------------------------------------------------------------- *)
 (* COFF object files                                                         *)
@@ -685,6 +740,11 @@ let () =
           Alcotest.test_case "export table" `Quick test_pe_exports;
           Alcotest.test_case "no exports" `Quick test_pe_no_exports;
           Alcotest.test_case "malformed count" `Quick test_pe_exports_bad_count;
+        ] );
+      ( "PE: imports",
+        [
+          Alcotest.test_case "import table" `Quick test_pe_imports;
+          Alcotest.test_case "no imports" `Quick test_pe_no_imports;
         ] );
       ( "COFF: headers",
         [

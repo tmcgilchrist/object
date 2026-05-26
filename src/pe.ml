@@ -1088,6 +1088,13 @@ let cursor_at_rva buf sections rva =
   | Some offset -> Some (Buffer.cursor ~at:offset buf)
   | None -> None
 
+(* The NUL-terminated string at [rva], or "" if it is unreadable. *)
+let string_at_rva buf sections rva =
+  match cursor_at_rva buf sections rva with
+  | Some c -> (
+      match Buffer.Read.zero_string c () with Some s -> s | None -> "")
+  | None -> ""
+
 (** {2 Exports}
 
     A PE image's export table (the IMAGE_DIRECTORY_ENTRY_EXPORT data directory,
@@ -1122,11 +1129,7 @@ let read_exports buf pe_obj =
         Buffer.ensure c (n * 4) "Export table";
         Array.init n (fun _ -> u32 c)
   in
-  let string_at rva =
-    match cursor_at rva with
-    | Some c -> ( match zero_string c () with Some s -> s | None -> "")
-    | None -> ""
-  in
+  let string_at rva = string_at_rva buf sections rva in
   match pe_obj.optional_header with
   | None -> None
   | Some opt -> (
@@ -1189,6 +1192,110 @@ let read_exports buf pe_obj =
                   ordinal_base;
                   exports = Array.of_list (List.rev !entries);
                 }))
+
+(** {2 Imports}
+
+    A PE image's import table (the IMAGE_DIRECTORY_ENTRY_IMPORT data directory,
+    typically in .idata) is a list of descriptors, one per imported DLL, each
+    naming the symbols imported from it by name (with a hint) or by ordinal. *)
+
+type imported_symbol =
+  | Import_by_name of { hint : int; name : string }
+  | Import_by_ordinal of int
+
+type import_descriptor = {
+  import_dll_name : string;
+  imports : imported_symbol list;
+}
+
+let read_imports buf pe_obj =
+  let open Buffer.Read in
+  let sections = pe_obj.section_headers in
+  let cursor_at rva = cursor_at_rva buf sections rva in
+  let string_at rva = string_at_rva buf sections rva in
+  match pe_obj.optional_header with
+  | None -> [||]
+  | Some opt -> (
+      match opt.data_directory.import_table with
+      | None -> [||]
+      | Some dd -> (
+          match cursor_at (Unsigned.UInt32.to_int dd.virtual_address) with
+          | None -> [||]
+          | Some cursor ->
+              let pe32plus = opt.magic = PE32PLUS in
+              (* One import-lookup-table entry: a terminating zero, an ordinal
+                 (top bit set), or an RVA to a hint/name entry. *)
+              let read_thunk c =
+                Buffer.ensure c (if pe32plus then 8 else 4) "Import thunk";
+                if pe32plus then
+                  let v = u64 c in
+                  if Unsigned.UInt64.(equal v zero) then `End
+                  else if
+                    not
+                      Unsigned.UInt64.(
+                        equal (logand v (shift_left one 63)) zero)
+                  then
+                    `Ordinal Unsigned.UInt64.(to_int (logand v (of_int 0xffff)))
+                  else
+                    `Name_rva
+                      Unsigned.UInt64.(to_int (logand v (of_int 0x7fffffff)))
+                else
+                  let v = Unsigned.UInt32.to_int (u32 c) in
+                  if v = 0 then `End
+                  else if v land 0x80000000 <> 0 then `Ordinal (v land 0xffff)
+                  else `Name_rva v
+              in
+              let hint_name rva =
+                match cursor_at rva with
+                | None -> (0, "")
+                | Some c ->
+                    Buffer.ensure c 2 "Import hint/name";
+                    let hint = Unsigned.UInt16.to_int (u16 c) in
+                    let name =
+                      match zero_string c () with Some s -> s | None -> ""
+                    in
+                    (hint, name)
+              in
+              let read_thunks thunk_rva =
+                match cursor_at thunk_rva with
+                | None -> []
+                | Some c ->
+                    let rec loop acc =
+                      match read_thunk c with
+                      | `End -> List.rev acc
+                      | `Ordinal ord -> loop (Import_by_ordinal ord :: acc)
+                      | `Name_rva rva ->
+                          let hint, name = hint_name rva in
+                          loop (Import_by_name { hint; name } :: acc)
+                    in
+                    loop []
+              in
+              (* Walk descriptors until the terminating all-zero entry. *)
+              let rec loop acc =
+                Buffer.ensure cursor 20 "Import descriptor";
+                let original_first_thunk =
+                  Unsigned.UInt32.to_int (u32 cursor)
+                in
+                ignore (u32 cursor) (* time/date stamp *);
+                ignore (u32 cursor) (* forwarder chain *);
+                let name_rva = Unsigned.UInt32.to_int (u32 cursor) in
+                let first_thunk = Unsigned.UInt32.to_int (u32 cursor) in
+                if original_first_thunk = 0 && name_rva = 0 && first_thunk = 0
+                then List.rev acc
+                else
+                  let thunk_rva =
+                    if original_first_thunk <> 0 then original_first_thunk
+                    else first_thunk
+                  in
+                  let desc =
+                    {
+                      import_dll_name = string_at name_rva;
+                      imports = read_thunks thunk_rva;
+                    }
+                  in
+                  loop (desc :: acc)
+              in
+              Array.of_list (loop [])))
 
 (** {2 Debug Directory}
 
