@@ -12,7 +12,7 @@ For reading files the library provides various abstraction levels:
  * a higher level unified API for accessing common features of object files,
    such as sections and symbols
 
-Supported file formats for reading: ELF and Macho-O
+Supported file formats for reading: ELF, Mach-O, and PE/COFF.
 
 For writing files the library provides:
 
@@ -42,7 +42,7 @@ And add `object` to your project's `dune-project` or `*.opam` files.
 
 ## Future
 
- * Reading file formats: Windows PE/COFF, and Unix Archive.
+ * Reading file formats: Unix Archive.
  * Writing PE/COFF files
 
 ## Prior work
@@ -51,3 +51,8 @@ This motivation for this library grew out of the author's need to manipulate obj
 files and DWARF information while working on the OCaml compiler. The library name
 simultaneously derives from the author's fascination with objects in OCaml and the
 [Rust library](https://github.com/gimli-rs/object) of the same name.
+
+The PE/COFF support was informed by these existing OCaml parsers:
+
+ * [OCaml `binutils.ml`](https://github.com/ocaml/ocaml/blob/trunk/utils/binutils.ml)
+ * [FlexDLL `coff.ml`](https://github.com/ocaml/flexdll/blob/master/coff.ml)

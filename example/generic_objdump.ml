@@ -9,17 +9,9 @@ let print_header (obj : Object.Object_format.t) =
     match header.format with
     | Object.Object_format.ELF -> "ELF"
     | Object.Object_format.MACHO -> "Mach-O"
+    | Object.Object_format.PE -> "PE"
   in
-  let arch_str =
-    match header.architecture with
-    | `X86 -> "x86"
-    | `X86_64 -> "x86_64"
-    | `ARM -> "arm"
-    | `ARM64 -> "arm64"
-    | `POWERPC -> "powerpc"
-    | `POWERPC64 -> "powerpc64"
-    | `Unknown n -> Printf.sprintf "unknown(%d)" n
-  in
+  let arch_str = Object.Object_format.arch_to_string header.architecture in
   Printf.printf "Format: %s\n" format_str;
   Printf.printf "Architecture: %s\n" arch_str;
   Printf.printf "64-bit: %b\n" header.is_64bit;

@@ -1,0 +1,755 @@
+open Object_types
+
+(** Windows PE/COFF parser based on
+    {:https://docs.microsoft.com/en-us/windows/win32/debug/pe-format}.
+
+    {1 Overview}
+
+    PE (Portable Executable) and COFF (Common Object File Format) are
+    Microsoft's standard binary file formats for Windows executables, object
+    files, and DLLs. This module provides parsing capabilities for both formats.
+
+    {2 What are PE/COFF Files?}
+
+    {b COFF (Common Object File Format)}:
+    - Object file format for intermediate compilation results
+    - Contains relocatable code and data sections
+    - Used by linkers to create final executables
+    - Originally developed by AT&T for Unix System V
+    - Adopted and extended by Microsoft for Windows
+
+    {b PE (Portable Executable)}:
+    - Executable file format based on COFF
+    - Used for .exe, .dll, .sys, and other executable files on Windows
+    - Extends COFF with additional Windows-specific headers and structures
+    - Supports both 32-bit (PE32) and 64-bit (PE32+) architectures
+    - Contains runtime loading and dynamic linking information
+
+    {2 File Structure}
+
+    PE files have a layered structure that builds upon the COFF foundation:
+
+    {v
+    PE File Layout:
+    +---------------------------+
+    |      DOS Header           |  <- Legacy 16-bit DOS compatibility
+    |      ("MZ" signature)     |
+    +---------------------------+
+    |      DOS Stub Program     |  <- Optional 16-bit code
+    +---------------------------+
+    |      PE Signature         |  <- "PE\0\0" magic number
+    +---------------------------+
+    |      COFF Header          |  <- Core file metadata (20 bytes)
+    +---------------------------+
+    |      Optional Header      |  <- PE-specific information
+    |      (PE32: 224 bytes)    |     - Entry point, image base
+    |      (PE32+: 240 bytes)   |     - Subsystem, DLL characteristics
+    +---------------------------+
+    |      Section Headers      |  <- Array of section metadata
+    |      (40 bytes each)      |
+    +---------------------------+
+    |                           |
+    |      Section Data         |  <- Actual code and data
+    |      (.text, .data, etc.) |
+    |                           |
+    +---------------------------+
+    v}
+
+    {2 Key Components}
+
+    {b DOS Header}: Legacy compatibility header allowing PE files to run on DOS
+    systems (displaying "This program cannot be run in DOS mode" message).
+
+    {b COFF Header}: Core 20-byte structure containing:
+    - Target machine architecture (x86, x64, ARM, etc.)
+    - Number of sections in the file
+    - File creation timestamp
+    - Symbol table information
+    - File characteristics flags
+
+    {b Optional Header}: PE-specific extended header (despite the name, always
+    present in PE files) containing:
+    - Entry point address for program execution
+    - Image base address for memory loading
+    - Section and file alignment requirements
+    - Subsystem type (console, GUI, driver, etc.)
+    - DLL characteristics and stack/heap sizes
+
+    {b Section Headers}: Array of 40-byte structures describing each section:
+    - Section name (up to 8 characters)
+    - Virtual and file addresses/sizes
+    - Section characteristics (readable, writable, executable)
+    - Relocation and line number information
+
+    {2 Common Sections}
+
+    - {b .text}: Executable code section
+    - Characteristics: [CNT_CODE; MEM_EXECUTE; MEM_READ]
+    - {b .data}: Initialised global and static variables
+    - Characteristics: [CNT_INITIALIZED_DATA; MEM_READ; MEM_WRITE]
+    - {b .rdata}: Read-only data (constants, string literals)
+    - Characteristics: [CNT_INITIALIZED_DATA; MEM_READ]
+    - {b .bss}: Uninitialised data (zero-filled at load time)
+    - Characteristics: [CNT_UNINITIALIZED_DATA; MEM_READ; MEM_WRITE]
+    - {b .idata}: Import address table for DLL functions
+    - Characteristics: [CNT_INITIALIZED_DATA; MEM_READ; MEM_WRITE]
+    - {b .edata}: Export table for DLL-exported functions
+    - Characteristics: [CNT_INITIALIZED_DATA; MEM_READ]
+    - {b .rsrc}: Embedded resources (icons, dialogs, version info)
+    - Characteristics: [CNT_INITIALIZED_DATA; MEM_READ]
+    - {b .reloc}: Base relocation table for ASLR support
+    - Characteristics: [CNT_INITIALIZED_DATA; MEM_READ; MEM_DISCARDABLE]
+    - {b .debug_*}: Debug information sections
+    - Characteristics: [LNK_INFO; LNK_REMOVE; MEM_DISCARDABLE]
+
+    {3 Section Characteristics Details}
+
+    The PE format defines comprehensive section characteristics that control
+    linking, loading, and runtime behaviour:
+
+    {b Content Classification}:
+    - [TYPE_NO_PAD]: Section should not be padded to alignment boundary
+    - [CNT_CODE]: Contains executable machine code
+    - [CNT_INITIALIZED_DATA]: Contains initialised data (variables, constants)
+    - [CNT_UNINITIALIZED_DATA]: Contains uninitialised data (BSS segment)
+
+    {b Linker Control}:
+    - [LNK_INFO]: Informational section (comments, debug info)
+    - [LNK_REMOVE]: Section excluded from final executable image
+    - [LNK_COMDAT]: COMDAT section for template instantiation/deduplication
+
+    {b Memory Management}:
+    - [MEM_EXECUTE]: Section can be executed (code pages)
+    - [MEM_READ]: Section can be read (most sections)
+    - [MEM_WRITE]: Section can be written to (data sections)
+    - [MEM_SHARED]: Section shared between processes (system sections)
+    - [MEM_DISCARDABLE]: Section can be discarded after loading (debug info)
+    - [MEM_NOT_CACHED]: Disable caching (device drivers, memory-mapped I/O)
+    - [MEM_NOT_PAGED]: Keep in physical memory (kernel code, interrupt handlers)
+
+    {2 PE32 vs PE32+}
+
+    The format supports both 32-bit and 64-bit architectures:
+
+    - {b PE32}: 32-bit format with 32-bit addresses and pointers
+    - {b PE32+}: 64-bit format with 64-bit addresses and some expanded fields
+    - Detected by the magic number in the optional header (0x10B vs 0x20B)
+    - Some fields change size between formats (image base, stack/heap sizes)
+
+    {2 Usage Examples}
+
+    {[
+      (* Detect if a buffer contains a PE file *)
+      if Pe.is_pe buffer then
+        Printf.printf "Found PE file\n"
+
+      (* Parse complete PE structure *)
+      let pe_obj = Pe.read buffer in
+
+      (* Get basic information *)
+      let arch = Pe.machine_to_arch pe_obj.coff_header.machine in
+      let is_64 = Pe.is_64bit pe_obj in
+      let is_exe = Pe.is_executable pe_obj in
+
+      (* Access sections *)
+      let sections = pe_obj.section_headers in
+      Array.iter (fun sec ->
+        Printf.printf "Section: %s\n" sec.name
+      ) sections
+    ]}
+
+    {2 References}
+
+    - {{:https://docs.microsoft.com/en-us/windows/win32/debug/pe-format}
+       Microsoft PE/COFF Specification}
+    - {{:https://github.com/ocaml/flexdll/blob/master/coff.ml} FlexDLL COFF
+       Implementation}
+    - {{:https://github.com/ocaml/ocaml/blob/trunk/utils/binutils.ml} OCaml
+       Binutils PE Support} *)
+
+(** Machine architecture types supported by PE/COFF format *)
+type machine_type =
+  | IMAGE_FILE_MACHINE_I386  (** Intel 386 or later processors *)
+  | IMAGE_FILE_MACHINE_AMD64  (** AMD64/x64 architecture *)
+  | IMAGE_FILE_MACHINE_ARM  (** ARM little-endian *)
+  | IMAGE_FILE_MACHINE_ARM64  (** ARM64 little-endian *)
+  | IMAGE_FILE_MACHINE_ARM64EC  (** ARM64EC (emulation-compatible) *)
+  | IMAGE_FILE_MACHINE_ARM64X  (** ARM64X (mixed ARM64 + ARM64EC) *)
+  | IMAGE_FILE_MACHINE_IA64  (** Intel Itanium *)
+  | IMAGE_FILE_MACHINE_RISCV32  (** RISC-V 32-bit *)
+  | IMAGE_FILE_MACHINE_RISCV64  (** RISC-V 64-bit *)
+  | IMAGE_FILE_MACHINE_UNKNOWN of u16
+      (** Unknown machine type with raw value *)
+
+(** PE format magic numbers indicating 32-bit vs 64-bit PE files *)
+type pe_magic =
+  | PE32  (** 32-bit PE format (0x10B) *)
+  | PE32PLUS  (** 64-bit PE format (0x20B) *)
+
+(** Section characteristics flags indicating section properties and behaviour.
+
+    These flags control how sections are processed during linking and loading:
+
+    {b Content Type Flags}:
+    - Content classification flags indicate the nature of section data
+    - Used by linkers to group related sections and set appropriate permissions
+
+    {b Linker Flags}:
+    - Control linker behaviour for object files and debugging information
+    - Determine whether sections are included in the final executable image
+
+    {b Memory Management Flags}:
+    - Control runtime memory behaviour and access permissions
+    - Set by the loader to configure memory protection and caching behaviour
+
+    Common flag combinations:
+    - Executable code: [CNT_CODE; MEM_EXECUTE; MEM_READ]
+    - Read-only data: [CNT_INITIALIZED_DATA; MEM_READ]
+    - Read-write data: [CNT_INITIALIZED_DATA; MEM_READ; MEM_WRITE]
+    - Debug info: [LNK_INFO; LNK_REMOVE; MEM_DISCARDABLE] *)
+type section_characteristics =
+  | IMAGE_SCN_TYPE_NO_PAD  (** Section should not be padded to next boundary *)
+  | IMAGE_SCN_CNT_CODE  (** Section contains executable code *)
+  | IMAGE_SCN_CNT_INITIALIZED_DATA  (** Section contains initialised data *)
+  | IMAGE_SCN_CNT_UNINITIALIZED_DATA  (** Section contains uninitialised data *)
+  | IMAGE_SCN_LNK_INFO  (** Section contains comments or other information *)
+  | IMAGE_SCN_LNK_REMOVE  (** Section will not become part of the image *)
+  | IMAGE_SCN_LNK_COMDAT  (** Section contains COMDAT data *)
+  | IMAGE_SCN_MEM_DISCARDABLE  (** Section can be discarded as needed *)
+  | IMAGE_SCN_MEM_NOT_CACHED  (** Section cannot be cached *)
+  | IMAGE_SCN_MEM_NOT_PAGED  (** Section is not pageable *)
+  | IMAGE_SCN_MEM_SHARED  (** Section can be shared in memory *)
+  | IMAGE_SCN_MEM_EXECUTE  (** Section can be executed as code *)
+  | IMAGE_SCN_MEM_READ  (** Section can be read *)
+  | IMAGE_SCN_MEM_WRITE  (** Section can be written to *)
+  | IMAGE_SCN_UNKNOWN of u32  (** Unknown characteristics with raw flags *)
+
+type coff_header = {
+  machine : machine_type;  (** Target machine architecture *)
+  number_of_sections : u16;  (** Number of section headers *)
+  time_date_stamp : u32;  (** File creation timestamp *)
+  pointer_to_symbol_table : u32;  (** File offset to symbol table *)
+  number_of_symbols : u32;  (** Number of symbol table entries *)
+  size_of_optional_header : u16;  (** Size of optional header *)
+  characteristics : u16;  (** File characteristics flags *)
+}
+(** COFF file header structure (20 bytes) *)
+
+(** Data directory types as defined in the PE specification *)
+type data_directory_type =
+  | IMAGE_DIRECTORY_ENTRY_EXPORT  (** Export table *)
+  | IMAGE_DIRECTORY_ENTRY_IMPORT  (** Import table *)
+  | IMAGE_DIRECTORY_ENTRY_RESOURCE  (** Resource table *)
+  | IMAGE_DIRECTORY_ENTRY_EXCEPTION  (** Exception table *)
+  | IMAGE_DIRECTORY_ENTRY_SECURITY  (** Certificate table *)
+  | IMAGE_DIRECTORY_ENTRY_BASERELOC  (** Base relocation table *)
+  | IMAGE_DIRECTORY_ENTRY_DEBUG  (** Debug data *)
+  | IMAGE_DIRECTORY_ENTRY_ARCHITECTURE  (** Architecture specific data *)
+  | IMAGE_DIRECTORY_ENTRY_GLOBALPTR  (** Global pointer register *)
+  | IMAGE_DIRECTORY_ENTRY_TLS  (** Thread local storage table *)
+  | IMAGE_DIRECTORY_ENTRY_LOAD_CONFIG  (** Load configuration table *)
+  | IMAGE_DIRECTORY_ENTRY_BOUND_IMPORT  (** Bound import table *)
+  | IMAGE_DIRECTORY_ENTRY_IAT  (** Import address table *)
+  | IMAGE_DIRECTORY_ENTRY_DELAY_IMPORT  (** Delay import descriptor *)
+  | IMAGE_DIRECTORY_ENTRY_COM_DESCRIPTOR  (** COM+ runtime descriptor *)
+  | IMAGE_DIRECTORY_ENTRY_RESERVED  (** Reserved *)
+
+type data_directory_entry = {
+  virtual_address : u32;  (** RVA of the table *)
+  size : u32;  (** Size of the table in bytes *)
+}
+(** Data directory entry containing address and size of a table *)
+
+type data_directory = {
+  export_table : data_directory_entry option;  (** Export table *)
+  import_table : data_directory_entry option;  (** Import table *)
+  resource_table : data_directory_entry option;  (** Resource table *)
+  exception_table : data_directory_entry option;  (** Exception table *)
+  certificate_table : data_directory_entry option;  (** Certificate table *)
+  base_relocation_table : data_directory_entry option;
+      (** Base relocation table *)
+  debug_data : data_directory_entry option;  (** Debug data *)
+  architecture_data : data_directory_entry option;
+      (** Architecture specific data *)
+  global_ptr : data_directory_entry option;  (** Global pointer register *)
+  tls_table : data_directory_entry option;  (** Thread local storage table *)
+  load_config_table : data_directory_entry option;
+      (** Load configuration table *)
+  bound_import_table : data_directory_entry option;  (** Bound import table *)
+  import_address_table : data_directory_entry option;
+      (** Import address table *)
+  delay_import_table : data_directory_entry option;
+      (** Delay import descriptor *)
+  com_descriptor : data_directory_entry option;  (** COM+ runtime descriptor *)
+  reserved : data_directory_entry option;  (** Reserved *)
+}
+(** Data directory containing all Windows-specific tables *)
+
+val get_data_directory_entry :
+  data_directory -> data_directory_type -> data_directory_entry option
+(** Get a data directory entry by type *)
+
+val has_data_directory : data_directory -> data_directory_type -> bool
+(** Check if a data directory entry exists and is non-empty *)
+
+val get_data_directory_address :
+  data_directory -> data_directory_type -> u32 option
+(** Get the virtual address of a data directory entry *)
+
+val get_data_directory_size :
+  data_directory -> data_directory_type -> u32 option
+(** Get the size of a data directory entry *)
+
+type optional_header = {
+  magic : pe_magic;  (** PE format version *)
+  major_linker_version : u8;  (** Major linker version *)
+  minor_linker_version : u8;  (** Minor linker version *)
+  size_of_code : u32;  (** Total size of code sections *)
+  size_of_initialized_data : u32;  (** Total size of initialised data *)
+  size_of_uninitialized_data : u32;  (** Total size of uninitialised data *)
+  address_of_entry_point : u32;  (** RVA of entry point *)
+  base_of_code : u32;  (** RVA of code section base *)
+  base_of_data : u32 option;  (** RVA of data section base (PE32 only) *)
+  image_base : u64;  (** Preferred load address *)
+  section_alignment : u32;  (** Section alignment in memory *)
+  file_alignment : u32;  (** Section alignment in file *)
+  major_operating_system_version : u16;  (** Major OS version *)
+  minor_operating_system_version : u16;  (** Minor OS version *)
+  major_image_version : u16;  (** Major image version *)
+  minor_image_version : u16;  (** Minor image version *)
+  major_subsystem_version : u16;  (** Major subsystem version *)
+  minor_subsystem_version : u16;  (** Minor subsystem version *)
+  win32_version_value : u32;  (** Win32 version (reserved) *)
+  size_of_image : u32;  (** Total image size in memory *)
+  size_of_headers : u32;  (** Total header size *)
+  checksum : u32;  (** Image checksum *)
+  subsystem : u16;  (** Target subsystem *)
+  dll_characteristics : u16;  (** DLL characteristics *)
+  size_of_stack_reserve : u64;  (** Stack reserve size *)
+  size_of_stack_commit : u64;  (** Stack commit size *)
+  size_of_heap_reserve : u64;  (** Heap reserve size *)
+  size_of_heap_commit : u64;  (** Heap commit size *)
+  loader_flags : u32;  (** Loader flags (reserved) *)
+  number_of_rva_and_sizes : u32;  (** Number of data directory entries *)
+  data_directory : data_directory;  (** Data directory tables *)
+}
+(** PE optional header structure containing Windows-specific information *)
+
+type section_header = {
+  name : string;  (** Section name (up to 8 characters) *)
+  virtual_size : u32;  (** Section size in memory *)
+  virtual_address : u32;  (** Section RVA when loaded *)
+  size_of_raw_data : u32;  (** Section size in file *)
+  pointer_to_raw_data : u32;  (** File offset to section data *)
+  pointer_to_relocations : u32;  (** File offset to relocations *)
+  pointer_to_line_numbers : u32;  (** File offset to line numbers *)
+  number_of_relocations : u16;  (** Number of relocation entries *)
+  number_of_line_numbers : u16;  (** Number of line number entries *)
+  characteristics : section_characteristics list;  (** Section properties *)
+}
+(** Section header structure (40 bytes) describing individual sections *)
+
+type string_table
+(** The COFF string table, holding section and symbol names longer than 8 bytes.
+*)
+
+val string_table_get : string_table -> int -> string
+(** [string_table_get tbl offset] returns the NUL-terminated name at [offset],
+    measured from the table start (the first string is at offset 4). *)
+
+type pe_object = {
+  coff_header : coff_header;  (** COFF file header *)
+  optional_header : optional_header option;
+      (** PE optional header (absent for COFF object files) *)
+  string_table : string_table option;
+      (** COFF string table, if the file has a symbol table *)
+  section_headers : section_header array;  (** Array of section headers *)
+}
+(** Complete PE/COFF object structure containing all parsed components *)
+
+val is_pe : Buffer.t -> bool
+(** [is_pe buffer] returns [true] if the buffer contains a PE image. Checks for
+    the DOS signature "MZ" and PE signature "PE\0\0". *)
+
+val is_coff : Buffer.t -> bool
+(** [is_coff buffer] returns [true] for a bare COFF object file (no DOS/PE
+    header) whose first field is a recognised machine type. *)
+
+val read : Buffer.t -> pe_object
+(** [read buffer] parses a PE image or a bare COFF object file and returns the
+    complete object structure with all headers and sections. *)
+
+(** {2 Symbol Table} *)
+
+(** COFF storage class of a symbol. *)
+type storage_class =
+  | IMAGE_SYM_CLASS_NULL
+  | IMAGE_SYM_CLASS_AUTOMATIC
+  | IMAGE_SYM_CLASS_EXTERNAL
+  | IMAGE_SYM_CLASS_STATIC
+  | IMAGE_SYM_CLASS_REGISTER
+  | IMAGE_SYM_CLASS_EXTERNAL_DEF
+  | IMAGE_SYM_CLASS_LABEL
+  | IMAGE_SYM_CLASS_UNDEFINED_LABEL
+  | IMAGE_SYM_CLASS_MEMBER_OF_STRUCT
+  | IMAGE_SYM_CLASS_ARGUMENT
+  | IMAGE_SYM_CLASS_STRUCT_TAG
+  | IMAGE_SYM_CLASS_MEMBER_OF_UNION
+  | IMAGE_SYM_CLASS_UNION_TAG
+  | IMAGE_SYM_CLASS_TYPE_DEFINITION
+  | IMAGE_SYM_CLASS_UNDEFINED_STATIC
+  | IMAGE_SYM_CLASS_ENUM_TAG
+  | IMAGE_SYM_CLASS_MEMBER_OF_ENUM
+  | IMAGE_SYM_CLASS_REGISTER_PARAM
+  | IMAGE_SYM_CLASS_BIT_FIELD
+  | IMAGE_SYM_CLASS_BLOCK
+  | IMAGE_SYM_CLASS_FUNCTION
+  | IMAGE_SYM_CLASS_END_OF_STRUCT
+  | IMAGE_SYM_CLASS_FILE
+  | IMAGE_SYM_CLASS_SECTION
+  | IMAGE_SYM_CLASS_WEAK_EXTERNAL
+  | IMAGE_SYM_CLASS_CLR_TOKEN
+  | IMAGE_SYM_CLASS_END_OF_FUNCTION
+  | IMAGE_SYM_CLASS_UNKNOWN of u8
+
+(** Base type of a symbol (low nibble of the Type field). *)
+type symbol_base_type =
+  | IMAGE_SYM_TYPE_NULL
+  | IMAGE_SYM_TYPE_VOID
+  | IMAGE_SYM_TYPE_CHAR
+  | IMAGE_SYM_TYPE_SHORT
+  | IMAGE_SYM_TYPE_INT
+  | IMAGE_SYM_TYPE_LONG
+  | IMAGE_SYM_TYPE_FLOAT
+  | IMAGE_SYM_TYPE_DOUBLE
+  | IMAGE_SYM_TYPE_STRUCT
+  | IMAGE_SYM_TYPE_UNION
+  | IMAGE_SYM_TYPE_ENUM
+  | IMAGE_SYM_TYPE_MOE
+  | IMAGE_SYM_TYPE_BYTE
+  | IMAGE_SYM_TYPE_WORD
+  | IMAGE_SYM_TYPE_UINT
+  | IMAGE_SYM_TYPE_DWORD
+  | IMAGE_SYM_TYPE_UNKNOWN of int
+
+(** Derived ("complex") type of a symbol (next nibble of the Type field). *)
+type symbol_complex_type =
+  | IMAGE_SYM_DTYPE_NULL
+  | IMAGE_SYM_DTYPE_POINTER
+  | IMAGE_SYM_DTYPE_FUNCTION
+  | IMAGE_SYM_DTYPE_ARRAY
+  | IMAGE_SYM_DTYPE_UNKNOWN of int
+
+type symbol_type = {
+  base_type : symbol_base_type;
+  complex_type : symbol_complex_type;
+      (** [IMAGE_SYM_DTYPE_FUNCTION] = function *)
+}
+(** A decoded symbol Type field. *)
+
+(** A decoded auxiliary symbol record, interpreted from the storage class of the
+    primary symbol it follows. *)
+type aux =
+  | Aux_file of string  (** [.file] symbol: the source file name *)
+  | Aux_function_definition of {
+      tag_index : u32;
+      total_size : u32;
+      pointer_to_line_number : u32;
+      pointer_to_next_function : u32;
+    }
+  | Aux_function_boundary of {
+      line_number : int;
+      pointer_to_next_function : u32;
+    }  (** [.bf]/[.ef] line-number records *)
+  | Aux_weak_external of { tag_index : u32; characteristics : u32 }
+  | Aux_section_definition of {
+      length : u32;
+      number_of_relocations : int;
+      number_of_line_numbers : int;
+      checksum : u32;
+      number : int;
+      selection : int;
+    }
+  | Aux_unknown of string  (** Raw 18 bytes for an undecoded record *)
+
+type symbol = {
+  sym_name : string;
+      (** Symbol name, resolved from the string table if longer than 8 bytes *)
+  sym_value : u32;  (** Symbol value; meaning depends on section and class *)
+  sym_section_number : int;
+      (** 1-based section index, or 0 (undefined), -1 (absolute), -2 (debug) *)
+  sym_type : symbol_type;  (** Decoded symbol type *)
+  sym_storage_class : storage_class;  (** Storage class *)
+  sym_number_of_aux_symbols : u8;
+      (** Count of raw auxiliary records following this one *)
+  sym_aux : aux list;  (** Decoded auxiliary records *)
+}
+(** A primary COFF symbol-table record. *)
+
+val read_symbols : Buffer.t -> pe_object -> symbol array
+(** [read_symbols buf pe_obj] reads the COFF symbol table, returning the primary
+    records with their auxiliary records decoded. Empty when there is no symbol
+    table. *)
+
+(** {2 Relocations} *)
+
+(** AMD64 (x86-64) relocation type. *)
+type amd64_relocation =
+  | IMAGE_REL_AMD64_ABSOLUTE
+  | IMAGE_REL_AMD64_ADDR64
+  | IMAGE_REL_AMD64_ADDR32
+  | IMAGE_REL_AMD64_ADDR32NB
+  | IMAGE_REL_AMD64_REL32
+  | IMAGE_REL_AMD64_REL32_1
+  | IMAGE_REL_AMD64_REL32_2
+  | IMAGE_REL_AMD64_REL32_3
+  | IMAGE_REL_AMD64_REL32_4
+  | IMAGE_REL_AMD64_REL32_5
+  | IMAGE_REL_AMD64_SECTION
+  | IMAGE_REL_AMD64_SECREL
+  | IMAGE_REL_AMD64_SECREL7
+  | IMAGE_REL_AMD64_TOKEN
+  | IMAGE_REL_AMD64_SREL32
+  | IMAGE_REL_AMD64_PAIR
+  | IMAGE_REL_AMD64_SSPAN32
+  | IMAGE_REL_AMD64_UNKNOWN of u16
+
+(** i386 (x86) relocation type. *)
+type i386_relocation =
+  | IMAGE_REL_I386_ABSOLUTE
+  | IMAGE_REL_I386_DIR16
+  | IMAGE_REL_I386_REL16
+  | IMAGE_REL_I386_DIR32
+  | IMAGE_REL_I386_DIR32NB
+  | IMAGE_REL_I386_SEG12
+  | IMAGE_REL_I386_SECTION
+  | IMAGE_REL_I386_SECREL
+  | IMAGE_REL_I386_TOKEN
+  | IMAGE_REL_I386_SECREL7
+  | IMAGE_REL_I386_REL32
+  | IMAGE_REL_I386_UNKNOWN of u16
+
+(** ARM64 relocation type. *)
+type arm64_relocation =
+  | IMAGE_REL_ARM64_ABSOLUTE
+  | IMAGE_REL_ARM64_ADDR32
+  | IMAGE_REL_ARM64_ADDR32NB
+  | IMAGE_REL_ARM64_BRANCH26
+  | IMAGE_REL_ARM64_PAGEBASE_REL21
+  | IMAGE_REL_ARM64_REL21
+  | IMAGE_REL_ARM64_PAGEOFFSET_12A
+  | IMAGE_REL_ARM64_PAGEOFFSET_12L
+  | IMAGE_REL_ARM64_SECREL
+  | IMAGE_REL_ARM64_SECREL_LOW12A
+  | IMAGE_REL_ARM64_SECREL_HIGH12A
+  | IMAGE_REL_ARM64_SECREL_LOW12L
+  | IMAGE_REL_ARM64_TOKEN
+  | IMAGE_REL_ARM64_SECTION
+  | IMAGE_REL_ARM64_ADDR64
+  | IMAGE_REL_ARM64_BRANCH19
+  | IMAGE_REL_ARM64_BRANCH14
+  | IMAGE_REL_ARM64_REL32
+  | IMAGE_REL_ARM64_UNKNOWN of u16
+
+(** A relocation type, decoded according to the COFF machine. *)
+type relocation_type =
+  | Reloc_amd64 of amd64_relocation
+  | Reloc_i386 of i386_relocation
+  | Reloc_arm64 of arm64_relocation
+  | Reloc_other of u16  (** A machine without a decoder for its relocations *)
+
+type relocation = {
+  reloc_virtual_address : u32;  (** Section offset of the item to fix up *)
+  reloc_symbol_table_index : u32;  (** Index of the referenced symbol *)
+  reloc_type : relocation_type;
+}
+(** A COFF relocation record. *)
+
+val read_relocations :
+  Buffer.t -> pe_object -> section_header -> relocation array
+(** [read_relocations buf pe_obj section] reads [section]'s relocation table,
+    decoding the relocation type for the file's machine. Empty when the section
+    has no relocations. *)
+
+(** {2 Exports} *)
+
+type export = {
+  export_ordinal : int;  (** Biased ordinal ([ordinal_base + index]) *)
+  export_name : string option;
+      (** Export name, or [None] for ordinal-only exports *)
+  export_address_rva : u32;  (** RVA of the export, or of a forwarder string *)
+}
+(** An entry from a PE image's export table. *)
+
+type export_directory = {
+  dll_name : string;  (** The exporting image's own name *)
+  export_time_date_stamp : u32;
+  export_major_version : u16;
+  export_minor_version : u16;
+  ordinal_base : int;  (** Ordinal of the first export-address-table entry *)
+  exports : export array;
+}
+(** A PE image's export directory. *)
+
+val read_exports : Buffer.t -> pe_object -> export_directory option
+(** [read_exports buf pe_obj] reads the image's export directory (the
+    IMAGE_DIRECTORY_ENTRY_EXPORT data directory), or [None] when the image
+    exports nothing. *)
+
+(** {2 Imports} *)
+
+(** A symbol imported from a DLL, either by name (with a hint) or by ordinal. *)
+type imported_symbol =
+  | Import_by_name of { hint : int; name : string }
+  | Import_by_ordinal of int
+
+type import_descriptor = {
+  import_dll_name : string;  (** Name of the imported DLL *)
+  imports : imported_symbol list;  (** Symbols imported from it *)
+}
+(** The imports from a single DLL. *)
+
+val read_imports : Buffer.t -> pe_object -> import_descriptor array
+(** [read_imports buf pe_obj] reads the image's import table (the
+    IMAGE_DIRECTORY_ENTRY_IMPORT data directory), one descriptor per imported
+    DLL. Empty when the image imports nothing. *)
+
+val machine_to_arch :
+  machine_type -> [ `X86 | `X86_64 | `ARM | `ARM64 | `Unknown of int ]
+(** [machine_to_arch machine] maps a COFF machine type to a generic
+    architecture. Access section headers directly via [pe_obj.section_headers].
+*)
+
+val machine_type_to_string : machine_type -> string
+(** [machine_type_to_string machine] renders a short architecture name for the
+    COFF machine type, e.g. ["amd64"] or ["riscv64"]. *)
+
+val is_64bit : pe_object -> bool
+(** [is_64bit pe_obj] returns [true] if the PE file is 64-bit (PE32+). *)
+
+val is_executable : pe_object -> bool
+(** [is_executable pe_obj] returns [true] if the PE file is executable. *)
+
+val entry_point : pe_object -> u64 option
+(** [entry_point pe_obj] returns the entry point virtual address ([image_base]
+    plus the entry-point RVA) if available. *)
+
+val section_characteristics_to_type_string :
+  section_characteristics list -> string
+(** [section_characteristics_to_type_string characteristics] converts section
+    characteristics to a human-readable type string. *)
+
+(** {2 Section Characteristic Utilities} *)
+
+val section_has_characteristic :
+  section_header -> section_characteristics -> bool
+(** [section_has_characteristic section_header characteristic] returns [true] if
+    the section has the specified characteristic flag. *)
+
+val section_is_executable : section_header -> bool
+(** [section_is_executable section_header] returns [true] if the section can be
+    executed as code (has IMAGE_SCN_MEM_EXECUTE flag). *)
+
+val section_is_writable : section_header -> bool
+(** [section_is_writable section_header] returns [true] if the section can be
+    written to (has IMAGE_SCN_MEM_WRITE flag). *)
+
+val section_is_readable : section_header -> bool
+(** [section_is_readable section_header] returns [true] if the section can be
+    read (has IMAGE_SCN_MEM_READ flag). *)
+
+val section_contains_code : section_header -> bool
+(** [section_contains_code section_header] returns [true] if the section
+    contains executable code (has IMAGE_SCN_CNT_CODE flag). *)
+
+val section_contains_data : section_header -> bool
+(** [section_contains_data section_header] returns [true] if the section
+    contains initialised or uninitialised data. *)
+
+val section_is_discardable : section_header -> bool
+(** [section_is_discardable section_header] returns [true] if the section can be
+    discarded as needed (has IMAGE_SCN_MEM_DISCARDABLE flag). *)
+
+val section_contents : Buffer.t -> section_header -> Buffer.t
+(** [section_contents buf section] returns a buffer containing the raw data of
+    the section. *)
+
+(** {2 Debug Directory}
+
+    The debug directory is found via the IMAGE_DIRECTORY_ENTRY_DEBUG data
+    directory entry. It provides information about embedded debug data and paths
+    to external PDB files. *)
+
+type debug_type =
+  | IMAGE_DEBUG_TYPE_UNKNOWN
+  | IMAGE_DEBUG_TYPE_COFF
+  | IMAGE_DEBUG_TYPE_CODEVIEW
+  | IMAGE_DEBUG_TYPE_FPO
+  | IMAGE_DEBUG_TYPE_MISC
+  | IMAGE_DEBUG_TYPE_EXCEPTION
+  | IMAGE_DEBUG_TYPE_FIXUP
+  | IMAGE_DEBUG_TYPE_BORLAND
+  | IMAGE_DEBUG_TYPE_REPRO
+  | IMAGE_DEBUG_TYPE_POGO
+  | IMAGE_DEBUG_TYPE_ILTCG
+  | IMAGE_DEBUG_TYPE_MPX
+  | IMAGE_DEBUG_TYPE_OTHER of int
+
+type debug_directory_entry = {
+  characteristics : u32;
+  time_date_stamp : u32;
+  major_version : u16;
+  minor_version : u16;
+  debug_type : debug_type;
+  size_of_data : u32;
+  address_of_raw_data : u32;
+  pointer_to_raw_data : u32;
+}
+
+type codeview_info = {
+  cv_signature : string;
+  guid : string;
+  age : u32;
+  pdb_path : string;
+}
+
+val parse_debug_directory : Buffer.t -> pe_object -> debug_directory_entry list
+(** [parse_debug_directory buf pe_obj] parses the debug directory entries from
+    the PE file. *)
+
+val parse_codeview_info :
+  Buffer.t -> debug_directory_entry -> codeview_info option
+(** [parse_codeview_info buf entry] parses a CodeView (RSDS) debug entry to
+    extract the PDB GUID, age, and file path. *)
+
+val find_pdb_path : Buffer.t -> pe_object -> string option
+(** [find_pdb_path buf pe_obj] finds the PDB file path from a PE file's CodeView
+    debug directory entry, if present. *)
+
+(** {2 Exception Data (.pdata / .xdata)}
+
+    On Windows x86-64, stack unwinding uses structured exception handling (SEH)
+    rather than DWARF .eh_frame. The .pdata section contains a sorted array of
+    RUNTIME_FUNCTION entries (one per non-leaf function), each pointing to an
+    UNWIND_INFO structure in the .xdata section.
+
+    These are the Windows equivalent of DWARF CFI (Call Frame Information). The
+    assembler directives .seh_proc, .seh_pushreg, .seh_stackalloc,
+    .seh_setframe, .seh_endprologue, .seh_endproc generate these structures. *)
+
+(** {3 .pdata: Runtime Function Table} *)
+
+type runtime_function = {
+  begin_address : u32;  (** Image-relative RVA of function start *)
+  end_address : u32;  (** Image-relative RVA of function end *)
+  unwind_info_address : u32;  (** Image-relative RVA of UNWIND_INFO in .xdata *)
+}
+(** A RUNTIME_FUNCTION entry from the .pdata section. *)
+
+val parse_pdata : Buffer.t -> section_header -> runtime_function array
+(** [parse_pdata buf pdata_section] parses the .pdata section into an array of
+    RUNTIME_FUNCTION entries. *)
+
+val write_pdata : Stdlib.Buffer.t -> runtime_function list -> unit
+(** [write_pdata buf entries] serialises RUNTIME_FUNCTION entries into .pdata
+    format. *)

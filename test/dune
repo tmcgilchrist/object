@@ -1,14 +1,28 @@
 (test
  (name test_object)
- (libraries object integers alcotest)
- (action
-  (run %{exe:test_object.exe})))
+ (libraries object integers alcotest))
 
 (test
  (name test_leb128)
- (libraries object integers alcotest)
+ (libraries object integers alcotest))
+
+(test
+ (name test_pe)
+ (libraries object integers alcotest))
+
+; Exercise the reader against a real toolchain-produced COFF object, when a
+; cross-compiler that targets Windows PE/COFF is available.
+
+(test
+ (name test_pe_real)
+ (build_if
+  (or
+   (= %{bin-available:clang} true)
+   (= %{bin-available:x86_64-w64-mingw32-gcc} true)))
+ (libraries object integers alcotest cmdliner)
+ (deps hello_pe.obj)
  (action
-  (run %{exe:test_leb128.exe})))
+  (run %{exe:test_pe_real.exe} --binary %{dep:hello_pe.obj})))
 
 (test
  (name test_fat)
@@ -75,6 +89,19 @@
    (= %{system} "macosx")))
  (action
   (run cc -gdwarf-5 %{deps} -o %{target})))
+
+; A Windows PE/COFF object built by cross-compiling a header-free C source.
+
+(rule
+ (deps hello_pe.c)
+ (target hello_pe.obj)
+ (enabled_if
+  (or
+   (= %{bin-available:clang} true)
+   (= %{bin-available:x86_64-w64-mingw32-gcc} true)))
+ (action
+  (system
+   "clang --target=x86_64-pc-windows-msvc -c %{deps} -o %{target} || x86_64-w64-mingw32-gcc -c %{deps} -o %{target}")))
 
 ; FAT binary testing - compare our tools with system tools
 
