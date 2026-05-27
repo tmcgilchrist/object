@@ -9,11 +9,11 @@
 (source (github tmcgilchrist/object))
 
 (package
-  (name object)
+ (name object)
  (tags (elf object mach-o pe coff))
  (synopsis "A unified interface for reading and writing object file formats")
  (description "A unified interface for reading and writing object file formats")
-  (depends
+ (depends
     (ocaml (>= 4.08))
     (integers (>= 0.8.0))
     (cmdliner :with-test)

@@ -1,20 +1,14 @@
 (test
  (name test_object)
- (libraries object integers alcotest)
- (action
-  (run %{exe:test_object.exe})))
+ (libraries object integers alcotest))
 
 (test
  (name test_leb128)
- (libraries object integers alcotest)
- (action
-  (run %{exe:test_leb128.exe})))
+ (libraries object integers alcotest))
 
 (test
  (name test_pe)
- (libraries object integers alcotest)
- (action
-  (run %{exe:test_pe.exe})))
+ (libraries object integers alcotest))
 
 ; Exercise the reader against a real toolchain-produced COFF object, when a
 ; cross-compiler that targets Windows PE/COFF is available.

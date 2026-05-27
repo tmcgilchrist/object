@@ -43,7 +43,7 @@ jobs:
 
       - name: Tests
         run: |
-          opam exec -- dune build @runtest
+          opam exec -- dune runtest
 
       - name: Format
         run: |
