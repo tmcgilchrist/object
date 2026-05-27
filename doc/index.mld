@@ -10,6 +10,6 @@
   Object.Pe
 
   Object.Buffer
-  Object.Format
-  Object.Types
+  Object.Object_format
+  Object.Object_types
   }

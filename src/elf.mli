@@ -538,9 +538,9 @@ val read_symbol_table :
     @param header The ELF header
     @param sections Array of ELF sections
     @return Array of symbols from the specified or default symbol table
-    @raise Failure
-      if the specified symbol table or its corresponding string table is not
-      found *)
+
+    Raises [Failure] if the specified symbol table or its corresponding string
+    table is not found. *)
 
 val read_section_contents :
   Buffer.t -> section array -> string -> Buffer.t option

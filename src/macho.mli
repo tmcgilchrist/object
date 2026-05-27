@@ -771,7 +771,8 @@ val read_fat : Buffer.t -> fat_header
     must point to the start of a FAT binary. Handles both 32-bit and 64-bit FAT
     formats and performs byte-swapping if needed (FAT is always big-endian).
 
-    @raise Invalid_format if the buffer is not a valid FAT binary *)
+    @raise Buffer.Invalid_format
+      if the buffer is not a valid FAT binary *)
 
 val extract_arch : Buffer.t -> fat_arch_any -> Buffer.t
 (** [extract_arch buffer arch] extracts a single architecture's Mach-O binary
