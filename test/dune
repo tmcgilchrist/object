@@ -118,7 +118,7 @@
 
 (rule
  (target xcrun.otool-f.output)
- (deps %{bin:octool})
+ (deps %{exe:../example/octool.exe})
  (enabled_if
   (and
    (= %{system} "macosx")
@@ -126,7 +126,7 @@
  (action
   (with-stdout-to
    %{target}
-   (run %{bin:octool} -f /usr/bin/xcrun))))
+   (run %{exe:../example/octool.exe} -f /usr/bin/xcrun))))
 
 (rule
  (alias runtest)
@@ -150,7 +150,7 @@
 
 (rule
  (target xcrun.lipo-info.output)
- (deps %{bin:oclipo})
+ (deps %{exe:../example/oclipo.exe})
  (enabled_if
   (and
    (= %{system} "macosx")
@@ -158,7 +158,7 @@
  (action
   (with-stdout-to
    %{target}
-   (run %{bin:oclipo} --info /usr/bin/xcrun))))
+   (run %{exe:../example/oclipo.exe} --info /usr/bin/xcrun))))
 
 (rule
  (alias runtest)
@@ -182,7 +182,7 @@
 
 (rule
  (target xcrun.lipo-archs.output)
- (deps %{bin:oclipo})
+ (deps %{exe:../example/oclipo.exe})
  (enabled_if
   (and
    (= %{system} "macosx")
@@ -190,7 +190,7 @@
  (action
   (with-stdout-to
    %{target}
-   (run %{bin:oclipo} --archs /usr/bin/xcrun))))
+   (run %{exe:../example/oclipo.exe} --archs /usr/bin/xcrun))))
 
 (rule
  (alias runtest)
@@ -214,7 +214,7 @@
 
 (rule
  (target xcrun.lipo-verify_arch.output)
- (deps %{bin:oclipo})
+ (deps %{exe:../example/oclipo.exe})
  (enabled_if
   (and
    (= %{system} "macosx")
@@ -223,7 +223,7 @@
   (with-stdout-to
    %{target}
    (run
-    %{bin:oclipo}
+    %{exe:../example/oclipo.exe}
     --verify_arch
     x86_64
     --verify_arch
@@ -284,7 +284,7 @@
 
 (rule
  (target xcrun.otool-l.output)
- (deps %{bin:octool})
+ (deps %{exe:../example/octool.exe})
  (enabled_if
   (and
    (= %{system} "macosx")
@@ -292,7 +292,7 @@
  (action
   (with-stdout-to
    %{target}
-   (run %{bin:octool} -l /usr/bin/xcrun))))
+   (run %{exe:../example/octool.exe} -l /usr/bin/xcrun))))
 
 (rule
  (alias runtest)
