@@ -1,0 +1,5 @@
+; Unit tests: exercise the library against in-memory and embedded data.
+
+(tests
+ (names test_object test_leb128 test_pe)
+ (libraries object integers alcotest))

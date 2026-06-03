@@ -30,6 +30,19 @@ $ opam install object
 
 And add `object` to your project's `dune-project` or `*.opam` files.
 
+## Tests
+
+The tests for `object` are split between:
+ * Unit tests in `test/unit` that build in-memory representations of binaries
+   and test they can be parsed correctly. They can be run using
+   `dune build @runtest`.
+ * Integration tests in `test/integration` that use the system toolchain to
+   build binaries and check they can be parsed correctly. These tests rely more
+   on specific versions of the toolchain that match GitHub CI runners. They can
+   be run using `dune build @integration`.
+
+Both suites can be run together with `dune build @run-all-tests`.
+
 ## Documentation
 
  * Documentation on [ocaml.org](https://ocaml.org/p/object)
