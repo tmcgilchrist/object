@@ -1,4 +1,4 @@
-(lang dune 3.9)
+(lang dune 3.23)
 (name object)
 (generate_opam_files true)
 (cram enable)
@@ -14,8 +14,8 @@
  (synopsis "A unified interface for reading and writing object file formats")
  (description "A unified interface for reading and writing object file formats")
  (depends
-    (ocaml (>= 4.08))
-    (integers (>= 0.8.0))
-    (cmdliner :with-test)
+    (ocaml (>= 4.14))
+    (integers (>= 0.8))
+    (cmdliner (and :with-test (>= 2.1)))
     (alcotest :with-test)
     (ocamlformat (and :with-dev-setup (= 0.29.0)))))

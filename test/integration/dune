@@ -1,72 +1,18 @@
-(test
- (name test_object)
- (libraries object integers alcotest))
+; Integration tests: build real object files and executables with the system
+; toolchain, then verify the object library can read the details back. They
+; also compare the example tools against the platform's native tools.
+;
 
-(test
- (name test_leb128)
- (libraries object integers alcotest))
+(executables
+ (names
+  test_pe_real
+  test_fat
+  test_macho_arm64
+  test_macho_amd64
+  test_elf_arm64)
+ (libraries object integers alcotest cmdliner))
 
-(test
- (name test_pe)
- (libraries object integers alcotest))
-
-; Exercise the reader against a real toolchain-produced COFF object, when a
-; cross-compiler that targets Windows PE/COFF is available.
-
-(test
- (name test_pe_real)
- (build_if
-  (or
-   (= %{bin-available:clang} true)
-   (= %{bin-available:x86_64-w64-mingw32-gcc} true)))
- (libraries object integers alcotest cmdliner)
- (deps hello_pe.obj)
- (action
-  (run %{exe:test_pe_real.exe} --binary %{dep:hello_pe.obj})))
-
-(test
- (name test_fat)
- (build_if
-  (and
-   (= %{system} "macosx")
-   (= %{architecture} "arm64")))
- (libraries object integers alcotest)
- (action
-  (run %{exe:test_fat.exe})))
-
-(test
- (name test_macho_arm64)
- (deps hello_world)
- (build_if
-  (and
-   (= %{system} "macosx")
-   (= %{architecture} "arm64")))
- (libraries object integers alcotest cmdliner)
- (action
-  (run %{exe:test_macho_arm64.exe} --binary %{dep:hello_world})))
-
-(test
- (name test_macho_amd64)
- (deps hello_world)
- (build_if
-  (and
-   (= %{system} "macosx")
-   (= %{architecture} "amd64")))
- (libraries object integers alcotest cmdliner)
- (action
-  (run %{exe:test_macho_amd64.exe} --binary %{dep:hello_world})))
-
-(test
- (name test_elf_arm64)
- (libraries object integers alcotest cmdliner)
- (build_if
-  (and
-   (= %{system} "linux")
-   (= %{architecture} "arm64")))
- (action
-  (run %{exe:test_elf_arm64.exe} --binary %{dep:hello_world})))
-
-; Provide a plain C program to inspect
+; Fixtures produced by the local toolchain.
 
 (rule
  (deps hello_world.c)
@@ -77,18 +23,6 @@
    (= %{system} "macosx")))
  (action
   (run cc %{deps} -o %{target})))
-
-; Provide a C program with DWARF 5 debug information to inspect.
-
-(rule
- (deps hello_world.c)
- (target hello_world_dwarf_5)
- (enabled_if
-  (or
-   (= %{system} "linux")
-   (= %{system} "macosx")))
- (action
-  (run cc -gdwarf-5 %{deps} -o %{target})))
 
 ; A Windows PE/COFF object built by cross-compiling a header-free C source.
 
@@ -103,7 +37,58 @@
   (system
    "clang --target=x86_64-pc-windows-msvc -c %{deps} -o %{target} || x86_64-w64-mingw32-gcc -c %{deps} -o %{target}")))
 
-; FAT binary testing - compare our tools with system tools
+; Reader acceptance tests against the real binaries above.
+
+(rule
+ (alias integration)
+ (enabled_if
+  (or
+   (= %{bin-available:clang} true)
+   (= %{bin-available:x86_64-w64-mingw32-gcc} true)))
+ (action
+  (run %{exe:test_pe_real.exe} --binary %{dep:hello_pe.obj})))
+
+(rule
+ (alias integration)
+ (enabled_if
+  (and
+   (= %{system} "macosx")
+   (= %{architecture} "arm64")))
+ (action
+  (run %{exe:test_fat.exe})))
+
+(rule
+ (alias integration)
+ (deps hello_world)
+ (enabled_if
+  (and
+   (= %{system} "macosx")
+   (= %{architecture} "arm64")))
+ (action
+  (run %{exe:test_macho_arm64.exe} --binary %{dep:hello_world})))
+
+(rule
+ (alias integration)
+ (deps hello_world)
+ (enabled_if
+  (and
+   (= %{system} "macosx")
+   (= %{architecture} "amd64")))
+ (action
+  (run %{exe:test_macho_amd64.exe} --binary %{dep:hello_world})))
+
+(rule
+ (alias integration)
+ (deps hello_world)
+ (enabled_if
+  (and
+   (= %{system} "linux")
+   (= %{architecture} "arm64")))
+ (action
+  (run %{exe:test_elf_arm64.exe} --binary %{dep:hello_world})))
+
+; FAT binary testing - compare our example tools with the system tools on a
+; known multi-arch system binary.
 
 (rule
  (target xcrun.otool-f.expected)
@@ -118,7 +103,7 @@
 
 (rule
  (target xcrun.otool-f.output)
- (deps %{bin:octool})
+ (deps %{exe:../../example/octool.exe})
  (enabled_if
   (and
    (= %{system} "macosx")
@@ -126,10 +111,10 @@
  (action
   (with-stdout-to
    %{target}
-   (run %{bin:octool} -f /usr/bin/xcrun))))
+   (run %{exe:../../example/octool.exe} -f /usr/bin/xcrun))))
 
 (rule
- (alias runtest)
+ (alias integration)
  (enabled_if
   (and
    (= %{system} "macosx")
@@ -150,7 +135,7 @@
 
 (rule
  (target xcrun.lipo-info.output)
- (deps %{bin:oclipo})
+ (deps %{exe:../../example/oclipo.exe})
  (enabled_if
   (and
    (= %{system} "macosx")
@@ -158,10 +143,10 @@
  (action
   (with-stdout-to
    %{target}
-   (run %{bin:oclipo} --info /usr/bin/xcrun))))
+   (run %{exe:../../example/oclipo.exe} --info /usr/bin/xcrun))))
 
 (rule
- (alias runtest)
+ (alias integration)
  (enabled_if
   (and
    (= %{system} "macosx")
@@ -182,7 +167,7 @@
 
 (rule
  (target xcrun.lipo-archs.output)
- (deps %{bin:oclipo})
+ (deps %{exe:../../example/oclipo.exe})
  (enabled_if
   (and
    (= %{system} "macosx")
@@ -190,10 +175,10 @@
  (action
   (with-stdout-to
    %{target}
-   (run %{bin:oclipo} --archs /usr/bin/xcrun))))
+   (run %{exe:../../example/oclipo.exe} --archs /usr/bin/xcrun))))
 
 (rule
- (alias runtest)
+ (alias integration)
  (enabled_if
   (and
    (= %{system} "macosx")
@@ -214,7 +199,7 @@
 
 (rule
  (target xcrun.lipo-verify_arch.output)
- (deps %{bin:oclipo})
+ (deps %{exe:../../example/oclipo.exe})
  (enabled_if
   (and
    (= %{system} "macosx")
@@ -223,7 +208,7 @@
   (with-stdout-to
    %{target}
    (run
-    %{bin:oclipo}
+    %{exe:../../example/oclipo.exe}
     --verify_arch
     x86_64
     --verify_arch
@@ -231,7 +216,7 @@
     /usr/bin/xcrun))))
 
 (rule
- (alias runtest)
+ (alias integration)
  (enabled_if
   (and
    (= %{system} "macosx")
@@ -263,7 +248,7 @@
    (run %{bin:file} /usr/bin/xcrun))))
 
 (rule
- (alias runtest)
+ (alias integration)
  (enabled_if
   (and
    (= %{system} "macosx")
@@ -284,7 +269,7 @@
 
 (rule
  (target xcrun.otool-l.output)
- (deps %{bin:octool})
+ (deps %{exe:../../example/octool.exe})
  (enabled_if
   (and
    (= %{system} "macosx")
@@ -292,10 +277,10 @@
  (action
   (with-stdout-to
    %{target}
-   (run %{bin:octool} -l /usr/bin/xcrun))))
+   (run %{exe:../../example/octool.exe} -l /usr/bin/xcrun))))
 
 (rule
- (alias runtest)
+ (alias integration)
  (enabled_if
   (and
    (= %{system} "macosx")

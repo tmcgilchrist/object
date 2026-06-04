@@ -1,0 +1,8 @@
+; dune build @run-all-tests: alias that runs the unit tests (@runtest)
+; and the integration tests (@integration) together.
+
+(alias
+ (name run-all-tests)
+ (deps
+  (alias_rec runtest)
+  (alias_rec integration)))
