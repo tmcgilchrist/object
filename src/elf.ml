@@ -652,11 +652,13 @@ let read_symbol_name strtab_section buffer st_name =
     let strtab_offset = Unsigned.UInt64.to_int strtab_section.sh_offset in
     let strtab_size = Unsigned.UInt64.to_int strtab_section.sh_size in
     if name_offset >= strtab_size then ""
-    else (
-      seek buffer (strtab_offset + name_offset);
-      match Read.zero_string buffer ~maxlen:(strtab_size - name_offset) () with
+    else
+      (* Read through a separate cursor so the caller's position in the symbol
+         table is left untouched. *)
+      let cur = cursor ~at:(strtab_offset + name_offset) buffer.buffer in
+      match Read.zero_string cur ~maxlen:(strtab_size - name_offset) () with
       | None -> ""
-      | Some s -> s)
+      | Some s -> s
 
 let read_symbol buffer strtab_section _n =
   let st_name = Read.u32 buffer in
