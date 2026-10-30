@@ -169,6 +169,27 @@ let test_fat_arch_count () =
     (Invalid_format "table extends past the end of the buffer") (fun () ->
       ignore (Object.Macho.read_fat buffer))
 
+(* A 64-bit Mach-O header followed by an empty LC_SEGMENT_64 of [cmdsize]
+   bytes. *)
+let macho_segment_64 cmdsize =
+  let u32 n =
+    [ n land 0xff; (n lsr 8) land 0xff; (n lsr 16) land 0xff; n lsr 24 ]
+  in
+  let header =
+    List.concat_map u32 [ 0xfeedfacf; 0x0100000c; 0; 1; 1; cmdsize; 0; 0 ]
+  in
+  let command = u32 0x19 @ u32 cmdsize @ List.init (cmdsize - 8) (fun _ -> 0) in
+  buffer_of_array (Array.of_list (header @ command))
+
+(* A segment_command_64 is 72 bytes. *)
+let test_macho_cmdsize () =
+  raises_invalid_format "cmdsize 16" (fun () ->
+      Object.Macho.read (macho_segment_64 16));
+  raises_invalid_format "cmdsize 71" (fun () ->
+      Object.Macho.read (macho_segment_64 71));
+  let _header, commands = Object.Macho.read (macho_segment_64 72) in
+  Alcotest.(check int) "cmdsize 72" 1 (List.length commands)
+
 let () =
   let open Alcotest in
   run "Object Library Tests"
@@ -195,4 +216,5 @@ let () =
           test_case "ELF symbol count overflow" `Quick test_elf_symtab_overflow;
           test_case "fat arch count" `Quick test_fat_arch_count;
         ] );
+      ("macho", [ test_case "cmdsize minimum" `Quick test_macho_cmdsize ]);
     ]
