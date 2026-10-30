@@ -819,7 +819,8 @@ type fat_validation_error =
 
 val validate_fat : Buffer.t -> (unit, fat_validation_error list) result
 (** [validate_fat buffer] validates a FAT binary for correctness. Checks for
-    overlapping architectures, proper alignment, and bounds.
+    overlapping architectures, proper alignment, and bounds. Overlaps are
+    reported between architectures adjacent in file order.
 
     @param buffer The FAT binary buffer to validate
     @return Ok () if valid, Error list of validation errors otherwise *)

@@ -724,6 +724,10 @@ let read_symbol_table ?symtab_name buffer _header sections =
     let symbol_count = Unsigned.UInt64.to_int sym_section.sh_size / entsize in
     let elf = cursor buffer in
     seek elf (Unsigned.UInt64.to_int sym_section.sh_offset);
+    (* Each read_symbol consumes 24 bytes; check they fit before allocating.
+       Divide rather than multiply, since [symbol_count * 24] can overflow. *)
+    if elf.position < 0 || symbol_count > (size buffer - elf.position) / 24 then
+      invalid_format "symbol table extends past the end of file";
     Array.init symbol_count (fun _ -> read_symbol elf str_section 0)
 
 let get_section_contents buffer section_name =

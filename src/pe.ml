@@ -1368,6 +1368,8 @@ let parse_debug_directory (buf : Buffer.t) (pe_obj : pe_object) :
             | Some cursor ->
                 let entry_size = 28 in
                 let count = size / entry_size in
+                Buffer.ensure cursor (count * entry_size)
+                  "debug directory extends past the end of the file";
                 List.init count (fun _ ->
                     let open Buffer.Read in
                     let characteristics = u32 cursor in
@@ -1435,6 +1437,7 @@ let parse_pdata (buf : Buffer.t) (sh : section_header) : runtime_function array
   let size = UInt32.to_int sh.size_of_raw_data in
   let count = size / 12 in
   let cursor = Buffer.cursor ~at:offset buf in
+  Buffer.ensure cursor (count * 12) ".pdata extends past the end of the file";
   Array.init count (fun _ ->
       let open Buffer.Read in
       let begin_address = u32 cursor in

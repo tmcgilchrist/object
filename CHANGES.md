@@ -5,6 +5,10 @@
   that don't fit in an `int`, and read `u32be` as big-endian
 - #16: Reject `uleb128` values of 2^62 and above, which were returned as
   negative `int`s. Add hedgehog property tests for LEB128 decoding
+- #17: Check table counts against the remaining data before allocating. A
+  corrupt Mach-O, ELF or PE count raises `Invalid_format` instead of trying to
+  allocate gigabytes. `Macho.validate_fat` checks overlaps between neighbouring
+  architectures only, avoiding a quadratic error list
 
 # 0.1
 

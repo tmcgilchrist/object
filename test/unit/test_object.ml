@@ -90,6 +90,85 @@ let test_zero_string_bounds () =
     "negative position" None
     (Read.zero_string (cursor ~at:(-4) (buffer_of_array [| 0x61; 0 |])) ())
 
+let buffer_of_hex hex =
+  buffer_of_array
+    (Array.init
+       (String.length hex / 2)
+       (fun i -> int_of_string ("0x" ^ String.sub hex (i * 2) 2)))
+
+(* A 64-bit Mach-O with one __TEXT segment whose __text section claims
+   0xffffffff relocations. *)
+let macho_nreloc_huge =
+  String.concat ""
+    [
+      "cffaedfe0c000001000000000100000001000000980000000000000000000000";
+      "19000000980000005f5f54455854000000000000000000000000000000000000";
+      "0000000000000000000000000000000000000000000000000700000005000000";
+      "01000000000000005f5f74657874000000000000000000005f5f544558540000";
+      "0000000000000000000000000000000000000000000000000000000000000000";
+      "00000000ffffffff00000000000000000000000000000000";
+    ]
+
+(* An ELF whose .symtab has sh_entsize 1 and sh_size 0x7fffffff. *)
+let elf_symtab_entsize1 =
+  String.concat ""
+    [
+      "7f454c4602010100000000000000000002003e00010000000000000000000000";
+      "0000000000000000980000000000000000000000400038000000400004000300";
+      "0000000000000000000000000000000000000000000000000100000012000100";
+      "00100000000000000000000000000000006d61696e00002e73796d746162002e";
+      "737472746162002e736873747274616200000000000000000000000000000000";
+      "0000000000000000000000000000000000000000000000000000000000000000";
+      "0000000000000000010000000000000000000000000000000100000002000000";
+      "000000000000000000000000000000004000000000000000ffffff7f00000000";
+      "0200000000000000010000000000000001000000000000000900000003000000";
+      "0000000000000000000000000000000070000000000000000600000000000000";
+      "0000000000000000010000000000000000000000000000001100000003000000";
+      "0000000000000000000000000000000076000000000000001b00000000000000";
+      "000000000000000001000000000000000000000000000000";
+    ]
+
+(* Corrupt counts are rejected before allocating, instead of filling memory. *)
+let test_macho_nreloc () =
+  let _header, commands = Object.Macho.read (buffer_of_hex macho_nreloc_huge) in
+  raises_invalid_format "nreloc" (fun () ->
+      List.iter
+        (function
+          | Object.Macho.LC_SEGMENT_64 seg -> ignore (Lazy.force seg) | _ -> ())
+        commands)
+
+let test_elf_symtab_count () =
+  let buffer = buffer_of_hex elf_symtab_entsize1 in
+  let header, sections = Object.Elf.read_elf buffer in
+  raises_invalid_format "symbol count" (fun () ->
+      Object.Elf.read_symbol_table buffer header sections)
+
+(* The same ELF with sh_size 0x0aaaaaaaaaaaaaab, so the symbol count times 24
+   overflows to 8. *)
+let elf_symtab_overflow =
+  let at = 248 * 2 in
+  String.sub elf_symtab_entsize1 0 at
+  ^ "abaaaaaaaaaaaa0a"
+  ^ String.sub elf_symtab_entsize1 (at + 16)
+      (String.length elf_symtab_entsize1 - at - 16)
+
+let test_elf_symtab_overflow () =
+  let buffer = buffer_of_hex elf_symtab_overflow in
+  let header, sections = Object.Elf.read_elf buffer in
+  raises_invalid_format "symbol count" (fun () ->
+      Object.Elf.read_symbol_table buffer header sections)
+
+(* FAT_MAGIC claiming 0xffffffff architectures, followed by one x86_64 arch.
+   The first arch must be readable, since [Array.init] reads it before
+   allocating, and the error must come from the count check. *)
+let test_fat_arch_count () =
+  let buffer =
+    buffer_of_hex "cafebabeffffffff010000070000000300001000000010000000000c"
+  in
+  Alcotest.check_raises "nfat_arch"
+    (Invalid_format "table extends past the end of the buffer") (fun () ->
+      ignore (Object.Macho.read_fat buffer))
+
 let () =
   let open Alcotest in
   run "Object Library Tests"
@@ -108,5 +187,12 @@ let () =
           test_case "negative position" `Quick test_negative_position;
           test_case "u32be" `Quick test_u32be;
           test_case "zero_string bounds" `Quick test_zero_string_bounds;
+        ] );
+      ( "allocation",
+        [
+          test_case "Mach-O nreloc" `Quick test_macho_nreloc;
+          test_case "ELF symbol count" `Quick test_elf_symtab_count;
+          test_case "ELF symbol count overflow" `Quick test_elf_symtab_overflow;
+          test_case "fat arch count" `Quick test_fat_arch_count;
         ] );
     ]
