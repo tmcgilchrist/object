@@ -157,6 +157,37 @@ let test_sleb128_edge_cases () =
         expected result)
     test_cases
 
+let raises_invalid_format name f =
+  match f () with
+  | exception Invalid_format _ -> ()
+  | _ -> Alcotest.failf "%s: expected Invalid_format" name
+
+let repeat n x = List.init n (fun _ -> x)
+
+(* Nine 7-bit groups fill an OCaml int, a tenth byte may only pad (0x00), or
+   sign-extend (0x7f) for sleb128. Anything wider is rejected. *)
+let test_leb128_limits () =
+  let uleb bytes = Read.uleb128 (cursor (buffer_from_bytes bytes)) in
+  let sleb bytes = Read.sleb128 (cursor (buffer_from_bytes bytes)) in
+  Alcotest.(check int)
+    "uleb128 max_int" max_int
+    (uleb (repeat 8 0xff @ [ 0x3f ]));
+  Alcotest.(check int) "uleb128 padding" 0 (uleb (repeat 9 0x80 @ [ 0x00 ]));
+  Alcotest.(check int)
+    "sleb128 -1 in ten bytes" (-1)
+    (sleb (repeat 9 0xff @ [ 0x7f ]));
+  Alcotest.(check int)
+    "sleb128 min_int" min_int
+    (sleb (repeat 8 0x80 @ [ 0x40 ]));
+  raises_invalid_format "uleb128 bit 63" (fun () ->
+      uleb (repeat 9 0xff @ [ 0x01 ]));
+  raises_invalid_format "uleb128 too long" (fun () ->
+      uleb (repeat 20 0x80 @ [ 0x01 ]));
+  raises_invalid_format "sleb128 too large" (fun () ->
+      sleb (repeat 9 0x80 @ [ 0x01 ]));
+  raises_invalid_format "sleb128 bad sign extension" (fun () ->
+      sleb (repeat 8 0x80 @ [ 0xc0; 0x00 ]))
+
 let test_cursor_position_advance () =
   (* Test that cursor position advances correctly after reading *)
   let buffer = buffer_from_bytes [ 0x80; 0x01; 0x7F ] in
@@ -213,5 +244,6 @@ let () =
           test_case "cursor position advance" `Quick
             test_cursor_position_advance;
           test_case "DWARF examples" `Quick test_dwarf_examples;
+          test_case "limits" `Quick test_leb128_limits;
         ] );
     ]

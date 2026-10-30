@@ -37,7 +37,7 @@ val seek : cursor -> int -> unit
 val ensure : cursor -> int -> string -> unit
 (** [ensure cursor len msg] verifies that at least [len] bytes are available
     from the current cursor position. Raises [Invalid_format msg] if
-    insufficient data. *)
+    insufficient data, or if the position or [len] is negative. *)
 
 val advance : cursor -> int -> unit
 (** [advance cursor len] moves the cursor forward by [len] bytes. *)
@@ -51,7 +51,10 @@ val sub : cursor -> int -> cursor
     [len] bytes. *)
 
 module Read : sig
-  (** Functions for reading binary data from cursors in little-endian format. *)
+  (** Functions for reading binary data from cursors in little-endian format.
+
+      Every function raises [Invalid_format] if it would read past the end of
+      the buffer. *)
 
   val s8 : cursor -> s8
   (** [s8 cursor] reads a signed 8-bit integer and advances the cursor by 1
@@ -83,11 +86,13 @@ module Read : sig
 
   val uleb128 : cursor -> u128
   (** [uleb128 cursor] reads an unsigned LEB128 (Little Endian Base 128) encoded
-      integer and advances the cursor by the appropriate number of bytes. *)
+      integer and advances the cursor by the appropriate number of bytes. Raises
+      [Invalid_format] if the value does not fit in an OCaml [int]. *)
 
   val sleb128 : cursor -> s128
   (** [sleb128 cursor] reads a signed LEB128 (Little Endian Base 128) encoded
-      integer and advances the cursor by the appropriate number of bytes. *)
+      integer and advances the cursor by the appropriate number of bytes. Raises
+      [Invalid_format] if the value does not fit in an OCaml [int]. *)
 
   val fixed_string : cursor -> int -> string
   (** [fixed_string cursor len] reads a string of exactly [len] bytes from
@@ -96,9 +101,9 @@ module Read : sig
   val zero_string : cursor -> ?maxlen:int -> unit -> string option
   (** [zero_string cursor ?maxlen ()] reads a zero-terminated string from
       [cursor], stopping at the first zero byte or when [maxlen] is reached, if
-      provided. Returns [None] if no zero terminator is found within [maxlen]
-      bytes. Advances the cursor past the zero terminator or by [maxlen] bytes.
-  *)
+      provided, or at the end of the buffer. Returns [None] if no zero
+      terminator is found, leaving the cursor unchanged; otherwise advances the
+      cursor past the zero terminator. *)
 
   val buffer : cursor -> int -> t
   (** [buffer cursor len] extracts a sub-buffer of [len] bytes starting from the
