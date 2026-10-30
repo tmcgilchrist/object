@@ -19,7 +19,12 @@ jobs:
           - windows-2025       # windows x86_64
 
         ocaml-compiler:
-          - "5.4.1"
+          - "5.5.2"
+
+        include:
+          # Lowest supported version, see dune-project.
+          - os: ubuntu-26.04
+            ocaml-compiler: "4.14.4"
 
     runs-on: ${{ matrix.os }}
     steps:
