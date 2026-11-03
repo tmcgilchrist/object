@@ -17,5 +17,5 @@
     (ocaml (>= 4.14))
     (integers (>= 0.8))
     (cmdliner (and :with-test (>= 2.1)))
-    (alcotest :with-test)
+    (alcotest (and :with-test (>= 1.9.0)))
     (ocamlformat (and :with-dev-setup (= 0.29.0)))))
