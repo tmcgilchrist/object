@@ -1,0 +1,12 @@
+(executable
+ (name test_leb128_properties)
+ (enabled_if
+  (>= %{ocaml_version} 5.1))
+ (libraries object hedgehog))
+
+(rule
+ (alias runtest)
+ (enabled_if
+  (>= %{ocaml_version} 5.1))
+ (action
+  (run %{exe:test_leb128_properties.exe})))

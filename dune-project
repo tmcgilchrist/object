@@ -1,21 +1,3 @@
 (lang dune 3.23)
 (name object)
-(generate_opam_files true)
 (cram enable)
-
-(license MIT)
-(maintainers "Tim McGilchrist <timmcgil@gmail.com>")
-(authors "Tim McGilchrist <timmcgil@gmail.com>")
-(source (github tmcgilchrist/object))
-
-(package
- (name object)
- (tags (elf object mach-o pe coff))
- (synopsis "A unified interface for reading and writing object file formats")
- (description "A unified interface for reading and writing object file formats")
- (depends
-    (ocaml (>= 4.14))
-    (integers (>= 0.8))
-    (cmdliner (and :with-test (>= 2.1)))
-    (alcotest (and :with-test (>= 1.9.0)))
-    (ocamlformat (and :with-dev-setup (= 0.29.0)))))
