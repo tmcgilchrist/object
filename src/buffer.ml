@@ -91,12 +91,15 @@ module Read = struct
     Unsigned.UInt64.to_int64 (u64 t)
 
   (* Nine 7-bit groups fill the 63 bits of an OCaml int. A tenth byte may only
-     be redundant padding (0x00) or, for sleb128, sign extension (0x7f). *)
+     be redundant padding (0x00) or, for sleb128, sign extension (0x7f). For
+     uleb128 bit 62 is the sign bit, so the ninth byte must leave it clear. *)
   let uleb128 t : u128 =
     let rec aux t shift acc =
       let x = u8 t |> Unsigned.UInt8.to_int in
       if shift >= 63 then
         if x = 0 then acc else invalid_format "uleb128: value too large"
+      else if shift = 56 && x land 0x40 <> 0 then
+        invalid_format "uleb128: value too large"
       else
         let acc = acc lor ((x land 0x7f) lsl shift) in
         if x land 0x80 = 0 then acc else aux t (shift + 7) acc

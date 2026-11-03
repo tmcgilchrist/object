@@ -179,6 +179,10 @@ let test_leb128_limits () =
   Alcotest.(check int)
     "sleb128 min_int" min_int
     (sleb (repeat 8 0x80 @ [ 0x40 ]));
+  raises_invalid_format "uleb128 bit 62" (fun () ->
+      uleb (repeat 8 0x80 @ [ 0x40 ]));
+  raises_invalid_format "uleb128 bit 62 then padding" (fun () ->
+      uleb (repeat 8 0x80 @ [ 0xc0; 0x00 ]));
   raises_invalid_format "uleb128 bit 63" (fun () ->
       uleb (repeat 9 0xff @ [ 0x01 ]));
   raises_invalid_format "uleb128 too long" (fun () ->
