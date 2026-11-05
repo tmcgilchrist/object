@@ -1532,12 +1532,39 @@ let read_dylib_command t lc =
     dylib_compatibility_version;
   }
 
-(* *)
+(* The smallest valid cmdsize for each command, header included, from the
+   structs in <mach-o/loader.h>. *)
+let min_cmdsize = function
+  | 0x00000001 (* LC_SEGMENT *) -> 56
+  | 0x00000019 (* LC_SEGMENT_64 *) -> 72
+  | 0x00000002 (* LC_SYMTAB *) -> 24
+  | 0x0000000b (* LC_DYSYMTAB *) -> 80
+  | 0x0000000c | 0x0000000d | 0x80000018 (* dylib *) -> 24
+  | 0x0000000e | 0x0000000f (* dylinker *) -> 12
+  | 0x00000010 (* LC_PREBOUND_DYLIB *) -> 20
+  | 0x00000011 (* LC_ROUTINES *) -> 40
+  | 0x0000001a (* LC_ROUTINES_64 *) -> 72
+  | 0x00000012 | 0x00000013 | 0x00000014 | 0x00000015 (* LC_SUB_* *) -> 12
+  | 0x00000016 (* LC_TWOLEVEL_HINTS *) -> 16
+  | 0x00000017 (* LC_PREBIND_CKSUM *) -> 12
+  | 0x0000001b (* LC_UUID *) -> 24
+  | 0x0000001d | 0x0000001e | 0x00000026 | 0x00000029 | 0x80000033
+  | 0x80000034 (* linkedit_data *) ->
+      16
+  | 0x0000002a (* LC_SOURCE_VERSION *) -> 16
+  | 0x00000032 (* LC_BUILD_VERSION *) -> 24
+  | 0x8000001c (* LC_RPATH *) -> 12
+  | 0x80000028 (* LC_MAIN *) -> 24
+  | _ (* LC_THREAD, LC_UNIXTHREAD and unhandled commands *) -> 8
+
 let read_load_command header buf t =
-  let cmd = Read.u32 t in
-  let cmdsize = Read.u32 t in
-  let t = sub t (Unsigned.UInt32.to_int cmdsize - 8) in
-  match Unsigned.UInt32.to_int cmd with
+  let cmd = Unsigned.UInt32.to_int (Read.u32 t) in
+  let cmdsize = Unsigned.UInt32.to_int (Read.u32 t) in
+  if cmdsize < min_cmdsize cmd then
+    invalid_format
+      (Printf.sprintf "load command 0x%x: cmdsize %d is too small" cmd cmdsize);
+  let t = sub t (cmdsize - 8) in
+  match cmd with
   | 0x00000001 -> LC_SEGMENT_32 (lazy (read_segment_32 header buf t))
   | 0x00000002 -> LC_SYMTAB (lazy (read_symbol_table header buf t))
   | 0x00000004 -> LC_THREAD (lazy (read_thread t))

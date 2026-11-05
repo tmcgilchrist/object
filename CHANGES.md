@@ -9,6 +9,8 @@
   corrupt Mach-O, ELF or PE count raises `Invalid_format` instead of trying to
   allocate gigabytes. `Macho.validate_fat` checks overlaps between neighbouring
   architectures only, avoiding a quadratic error list
+- #18: Reject Mach-O load commands whose `cmdsize` is smaller than the
+  command's fixed-size structure, raising `Invalid_format` from `Macho.read`
 
 # 0.1
 
