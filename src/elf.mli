@@ -542,10 +542,16 @@ val read_symbol_table :
     Raises [Failure] if the specified symbol table or its corresponding string
     table is not found. *)
 
+val has_file_data : section -> bool
+(** [has_file_data section] is [true] unless [section] is [SHT_NOBITS], such as
+    [.bss]. *)
+
 val read_section_contents :
   Buffer.t -> section array -> string -> Buffer.t option
-(** [read_section_contents buf section_name] reads the section contents for
-    [section_name]. Returns None if the section name is not found *)
+(** [read_section_contents buf sections name] returns the contents of the
+    section called [name], or [None] if [sections] has no such section. A
+    section without file data gives an empty buffer. Raises
+    [Buffer.Invalid_format] if the section extends past the end of [buf]. *)
 
 val get_section_contents : Buffer.t -> string -> Buffer.t option
 (** [get_section_contents buffer section_name] searches for a section with the

@@ -64,7 +64,9 @@ val find_segment : t -> string -> segment option
 (** Find a segment by name *)
 
 val section_contents : Buffer.t -> t -> section -> Buffer.t
-(** Read section contents *)
+(** [section_contents buf t section] returns the contents of [section] in [buf],
+    or an empty buffer for a section without file data such as [.bss]. Raises
+    [Buffer.Invalid_format] if [section] extends past the end of [buf]. *)
 
 val format : t -> format
 (** Get format-specific information *)

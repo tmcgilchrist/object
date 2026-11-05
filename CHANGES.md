@@ -11,6 +11,11 @@
   architectures only, avoiding a quadratic error list
 - #18: Reject Mach-O load commands whose `cmdsize` is smaller than the
   command's fixed-size structure, raising `Invalid_format` from `Macho.read`
+- #19: Check section and fat architecture extents against the buffer, raising
+  `Invalid_format` instead of `Invalid_argument`. ELF `SHT_NOBITS` sections,
+  Mach-O zero-fill sections and Mach-O sections at offset 0 (as in a dSYM) now
+  have no file contents (`file_size` 0, empty body) instead of reading
+  unrelated bytes. Add `Elf.has_file_data` and `Macho.has_file_data`
 
 # 0.1
 

@@ -1611,10 +1611,26 @@ let read buf =
   let commands = read_load_commands header buf t in
   (header, commands)
 
+(* No section can start at offset 0, where the header is, so an offset of 0
+   marks a section without file data, as in the __TEXT sections of a dSYM. *)
+let has_file_data sec =
+  match sec.sec_type with
+  | `S_ZEROFILL | `S_GB_ZEROFILL | `Unknown 0x12 (* S_THREAD_LOCAL_ZEROFILL *)
+    ->
+      false
+  | `S_REGULAR | `S_CSTRING_LITERALS | `S_4BYTE_LITERALS | `S_8BYTE_LITERALS
+  | `S_LITERAL_POINTERS | `S_NON_LAZY_SYMBOL_POINTERS | `S_LAZY_SYMBOL_POINTERS
+  | `S_SYMBOL_STUBS | `S_MOD_INIT_FUNC_POINTERS | `S_MOD_TERM_FUNC_POINTERS
+  | `S_COALESCED | `S_INTERPOSING | `S_16BYTE_LITERALS | `S_DTRACE_DOF
+  | `S_LAZY_DYLIB_SYMBOL_POINTERS | `Unknown _ ->
+      Unsigned.UInt32.to_int sec.sec_offset <> 0
+
 let section_body buffer sec =
-  Bigarray.Array1.sub buffer
-    (Unsigned.UInt32.to_int sec.sec_offset)
-    (Unsigned.UInt64.to_int sec.sec_size)
+  if not (has_file_data sec) then Bigarray.Array1.sub buffer 0 0
+  else
+    Read.buffer
+      (cursor ~at:(Unsigned.UInt32.to_int sec.sec_offset) buffer)
+      (Unsigned.UInt64.to_int sec.sec_size)
 
 let get_section_contents buffer section_name =
   let _header, commands = read buffer in
@@ -1741,12 +1757,12 @@ let read_fat buffer =
 let extract_arch buffer arch =
   match arch with
   | `Fat_arch fa ->
-      Bigarray.Array1.sub buffer
-        (Unsigned.UInt32.to_int fa.fa_offset)
+      Read.buffer
+        (cursor ~at:(Unsigned.UInt32.to_int fa.fa_offset) buffer)
         (Unsigned.UInt32.to_int fa.fa_size)
   | `Fat_arch_64 fa64 ->
-      Bigarray.Array1.sub buffer
-        (Unsigned.UInt64.to_int fa64.fa64_offset)
+      Read.buffer
+        (cursor ~at:(Unsigned.UInt64.to_int fa64.fa64_offset) buffer)
         (Unsigned.UInt64.to_int fa64.fa64_size)
 
 let arch_name arch =
