@@ -303,6 +303,55 @@ let test_pe_section_contents_out_of_bounds () =
   raises_invalid_format "section_contents" (fun () ->
       Object.Pe.section_contents (buffer_of_array [| 0; 0; 0; 0 |]) section)
 
+(* [elf_symtab_entsize1] with [(offset, bytes)] patches applied. Its header
+   fields are at e_shoff 0x28, e_shentsize 0x3a, e_shnum 0x3c and e_shstrndx
+   0x3e, and section 0 is at 0x98, with sh_size at 0xb8 and sh_link at 0xc0. *)
+let elf_patched patches =
+  let buffer = buffer_of_hex elf_symtab_entsize1 in
+  List.iter
+    (fun (offset, bytes) ->
+      List.iteri (fun i b -> buffer.{offset + i} <- b) bytes)
+    patches;
+  buffer
+
+let le16 n = [ n land 0xff; n lsr 8 ]
+
+let section_names buffer =
+  let _header, sections = Object.Elf.read_elf buffer in
+  Array.to_list (Array.map (fun s -> s.Object.Elf.sh_name_str) sections)
+
+let fixture_names = [ ""; ".symtab"; ".strtab"; ".shstrtab" ]
+
+let test_elf_no_section_headers () =
+  Alcotest.(check (list string))
+    "no sections" []
+    (section_names
+       (elf_patched [ (0x28, le64 0); (0x3c, le16 0); (0x3e, le16 0) ]))
+
+let test_elf_shstrndx () =
+  Alcotest.(check (list string))
+    "SHN_UNDEF" [ ""; ""; ""; "" ]
+    (section_names (elf_patched [ (0x3e, le16 0) ]));
+  raises_invalid_format "out of range" (fun () ->
+      section_names (elf_patched [ (0x3e, le16 4) ]))
+
+let test_elf_extended_numbering () =
+  Alcotest.(check (list string))
+    "e_shnum and e_shstrndx in section 0" fixture_names
+    (section_names
+       (elf_patched
+          [
+            (0x3c, le16 0); (0x3e, le16 0xffff); (0xb8, le64 4); (0xc0, le32 3);
+          ]));
+  raises_invalid_format "SHN_XINDEX out of range" (fun () ->
+      section_names (elf_patched [ (0x3e, le16 0xffff); (0xc0, le32 4) ]))
+
+let test_elf_section_count () =
+  raises_invalid_format "huge sh_size count" (fun () ->
+      section_names (elf_patched [ (0x3c, le16 0); (0xb8, le64 0x7fffffff) ]));
+  raises_invalid_format "e_shentsize" (fun () ->
+      section_names (elf_patched [ (0x3a, le16 32) ]))
+
 let () =
   let open Alcotest in
   run "Object Library Tests"
@@ -330,6 +379,13 @@ let () =
           test_case "fat arch count" `Quick test_fat_arch_count;
         ] );
       ("macho", [ test_case "cmdsize minimum" `Quick test_macho_cmdsize ]);
+      ( "elf section headers",
+        [
+          test_case "no section headers" `Quick test_elf_no_section_headers;
+          test_case "e_shstrndx" `Quick test_elf_shstrndx;
+          test_case "extended numbering" `Quick test_elf_extended_numbering;
+          test_case "section count" `Quick test_elf_section_count;
+        ] );
       ( "section contents",
         [
           test_case "ELF out of bounds" `Quick test_elf_section_out_of_bounds;

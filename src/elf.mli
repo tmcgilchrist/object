@@ -111,8 +111,12 @@ type header = {
   e_phentsize : u16;  (** Size of a program header table entry *)
   e_phnum : u16;  (** Number of entries in program header table *)
   e_shentsize : u16;  (** Size of a section header table entry *)
-  e_shnum : u16;  (** Number of entries in section header table *)
-  e_shstrndx : u16;  (** Section header string table index *)
+  e_shnum : u16;
+      (** Number of entries in section header table, or 0 if the count is in
+          section 0's [sh_size] *)
+  e_shstrndx : u16;
+      (** Section header string table index, or [SHN_XINDEX] (0xffff) if the
+          index is in section 0's [sh_link] *)
 }
 (** ELF header structure containing essential file metadata. This is the first
     structure in an ELF file and provides information needed to interpret the
@@ -336,7 +340,11 @@ type auxiliary_vector = {
 
 val read_elf : Buffer.t -> header * section array
 (** [read_elf buffer] decodes the header and section table from a buffer
-    pointing to an ELF image. *)
+    pointing to an ELF image. Extended section numbering is resolved, so the
+    array holds every section. A file without a section header table gives an
+    empty array, and one whose [e_shstrndx] is [SHN_UNDEF] gives sections with
+    empty names. Raises [Buffer.Invalid_format] if the section header table or
+    [e_shstrndx] is invalid. *)
 
 (** {1 ELF Sections and Segments}
 

@@ -16,6 +16,10 @@
   Mach-O zero-fill sections and Mach-O sections at offset 0 (as in a dSYM) now
   have no file contents (`file_size` 0, empty body) instead of reading
   unrelated bytes. Add `Elf.has_file_data` and `Macho.has_file_data`
+- #20: Read ELF files without a section header table or section name string
+  table (`e_shstrndx` of `SHN_UNDEF`), and resolve extended section numbering
+  (`SHN_XINDEX`). An out-of-range `e_shstrndx`, an `e_shentsize` other than 64
+  or a section count past the end of the file raises `Invalid_format`
 
 # 0.1
 
