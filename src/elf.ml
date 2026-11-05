@@ -324,14 +324,14 @@ let elf_class_of_u8 (x : u8) =
   | 0 -> `ELFCLASSNONE
   | 1 -> `ELFCLASS32
   | 2 -> `ELFCLASS64
-  | n -> failwith (Printf.sprintf "Invalid ELF class: %d" n)
+  | n -> invalid_format (Printf.sprintf "Invalid ELF class: %d" n)
 
 let elf_data_of_u8 (x : u8) =
   match Unsigned.UInt8.to_int x with
   | 0 -> `ELFDATANONE
   | 1 -> `ELFDATA2LSB
   | 2 -> `ELFDATA2MSB
-  | n -> failwith (Printf.sprintf "Invalid ELF data encoding: %d" n)
+  | n -> invalid_format (Printf.sprintf "Invalid ELF data encoding: %d" n)
 
 let elf_osabi_of_u8 (x : u8) =
   match Unsigned.UInt8.to_int x with
@@ -429,13 +429,17 @@ let read_identification t =
   (match elf_class with
   | `ELFCLASS64 -> () (* supported *)
   | `ELFCLASS32 ->
-      failwith "object only supports ELFCLASS64 (64-bit object) files"
-  | `ELFCLASSNONE -> failwith "Invalid ELF class");
+      invalid_format "object only supports ELFCLASS64 (64-bit object) files"
+  | `ELFCLASSNONE -> invalid_format "Invalid ELF class");
+  (match elf_data with
+  | `ELFDATA2LSB -> () (* supported *)
+  | `ELFDATA2MSB ->
+      invalid_format "object only supports ELFDATA2LSB (little-endian) files"
+  | `ELFDATANONE -> invalid_format "Invalid ELF data encoding");
 
   { elf_class; elf_data; elf_version; elf_osabi; elf_abiversion }
 
 let read_header t e_ident =
-  assert (t.position = 16);
   ensure t 48 "Header truncated";
   let e_type_raw = Read.u16 t in
   let e_machine_raw = Read.u16 t in

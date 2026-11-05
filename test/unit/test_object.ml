@@ -352,6 +352,31 @@ let test_elf_section_count () =
   raises_invalid_format "e_shentsize" (fun () ->
       section_names (elf_patched [ (0x3a, le16 32) ]))
 
+(* Unsupported or invalid EI_CLASS and EI_DATA values raise Invalid_format
+   rather than Failure. *)
+let test_elf_identification () =
+  List.iter
+    (fun (name, offset, value) ->
+      raises_invalid_format name (fun () ->
+          section_names (elf_patched [ (offset, [ value ]) ])))
+    [
+      ("ELFCLASSNONE", 4, 0);
+      ("ELFCLASS32", 4, 1);
+      ("EI_CLASS 3", 4, 3);
+      ("ELFDATANONE", 5, 0);
+      ("ELFDATA2MSB", 5, 2);
+      ("EI_DATA 3", 5, 3);
+    ]
+
+let test_unknown_format () =
+  let open Object.Object_format in
+  let buffer = buffer_of_array [| 0x12; 0x34; 0x56; 0x78 |] in
+  raises_invalid_format "detect_format" (fun () -> detect_format buffer);
+  raises_invalid_format "read" (fun () -> read buffer);
+  Alcotest.check_raises "Object_format.Invalid_format"
+    (Invalid_format "Unsupported file format") (fun () ->
+      ignore (detect_format buffer))
+
 let () =
   let open Alcotest in
   run "Object Library Tests"
@@ -385,6 +410,11 @@ let () =
           test_case "e_shstrndx" `Quick test_elf_shstrndx;
           test_case "extended numbering" `Quick test_elf_extended_numbering;
           test_case "section count" `Quick test_elf_section_count;
+        ] );
+      ( "errors",
+        [
+          test_case "ELF identification" `Quick test_elf_identification;
+          test_case "unknown format" `Quick test_unknown_format;
         ] );
       ( "section contents",
         [

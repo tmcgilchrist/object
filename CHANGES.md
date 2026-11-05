@@ -20,6 +20,11 @@
   table (`e_shstrndx` of `SHN_UNDEF`), and resolve extended section numbering
   (`SHN_XINDEX`). An out-of-range `e_shstrndx`, an `e_shentsize` other than 64
   or a section count past the end of the file raises `Invalid_format`
+- #21: Raise `Invalid_format` instead of `Failure` for unsupported ELF classes
+  and data encodings and for unrecognised formats in
+  `Object_format.detect_format`. Reject big-endian ELF explicitly instead of
+  misreading it. `Object_format.Invalid_format` is now the same exception as
+  `Buffer.Invalid_format`. `Object_format` detects bare COFF objects as `PE`
 
 # 0.1
 
