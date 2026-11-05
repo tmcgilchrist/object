@@ -704,7 +704,8 @@ val read_load_commands : header -> Buffer.t -> Buffer.cursor -> command list
 
 val read : Buffer.t -> header * command list
 (** [read] decodes the [header] and load [command] list, from a [Buffer.t]
-    pointing to a MachO image *)
+    pointing to a MachO image. Raises [Buffer.Invalid_format] for a FAT binary,
+    so select an architecture with {!read_fat} and {!extract_arch} first. *)
 
 val has_file_data : section -> bool
 (** [has_file_data section] is [true] if [section] has contents in the file.

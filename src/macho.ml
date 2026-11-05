@@ -805,7 +805,10 @@ let magic = function
   | 0xFEEDFACF -> MAGIC64
   | 0xCEFAEDFE -> CIGAM32
   | 0xCFFAEDFE -> CIGAM64
-  | _ -> invalid_format "magic"
+  | 0xCAFEBABE | 0xBEBAFECA | 0xCAFEBABF | 0xBFBAFECA ->
+      invalid_format
+        "FAT binary: select an architecture with read_fat and extract_arch"
+  | n -> invalid_format (Printf.sprintf "Unrecognised Mach-O magic 0x%x" n)
 
 let cpu_type = function
   | 0x00000007 -> `X86

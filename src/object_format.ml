@@ -266,6 +266,10 @@ let parse_pe (buf : Buffer.t) : t =
 let read (buf : Buffer.t) : t =
   match detect_format_internal buf with
   | ELF -> parse_elf buf
+  | MACHO when Macho.is_fat buf ->
+      raise
+        (Invalid_format
+           "FAT binary: select an architecture with read_arch or iter_archs")
   | MACHO -> parse_macho buf
   | PE -> parse_pe buf
 

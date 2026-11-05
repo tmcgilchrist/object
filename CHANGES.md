@@ -30,6 +30,9 @@
   from the start of the file, and `LC_TWOLEVEL_HINTS` read its table from the
   command instead of the file. `LC_PREBOUND_DYLIB` reads `(n + 7) / 8` bytes of
   module bit vector
+- #23: `Macho.read` and `Object_format.read` raise an `Invalid_format` naming
+  the functions that select an architecture when given a FAT binary, instead
+  of failing with "magic"
 
 # 0.1
 
