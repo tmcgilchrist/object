@@ -509,14 +509,39 @@ let read_section_name shstrndx t shdr =
   | None -> invalid_format "Unterminated section name"
   | Some s -> s
 
+(* With more than SHN_LORESERVE sections, e_shnum is 0 and the count is in
+   section 0's sh_size; with SHN_XINDEX in e_shstrndx, the index is in its
+   sh_link. *)
 let read_sections header t =
-  let sections =
-    Array.init (Unsigned.UInt16.to_int header.e_shnum) (read_section header t)
-  in
-  let shstrndx = sections.(Unsigned.UInt16.to_int header.e_shstrndx) in
-  Array.map
-    (fun s -> { s with sh_name_str = read_section_name shstrndx t s })
-    sections
+  let shoff = Unsigned.UInt64.to_int header.e_shoff in
+  let shnum = Unsigned.UInt16.to_int header.e_shnum in
+  if shnum = 0 && shoff = 0 then [||]
+  else (
+    if Unsigned.UInt16.to_int header.e_shentsize <> 64 then
+      invalid_format "e_shentsize is not 64";
+    let first = read_section header t 0 in
+    let count =
+      if shnum = 0 then Unsigned.UInt64.to_int first.sh_size else shnum
+    in
+    if count < 0 || count > (size t.buffer - shoff) / 64 then
+      invalid_format "section header table extends past the end of file";
+    let sections =
+      Array.init count (fun n ->
+          if n = 0 then first else read_section header t n)
+    in
+    match Unsigned.UInt16.to_int header.e_shstrndx with
+    | 0 (* SHN_UNDEF *) -> sections
+    | shstrndx ->
+        let shstrndx =
+          if shstrndx = 0xffff (* SHN_XINDEX *) then
+            Unsigned.UInt32.to_int first.sh_link
+          else shstrndx
+        in
+        if shstrndx >= count then invalid_format "e_shstrndx out of range";
+        let strtab = sections.(shstrndx) in
+        Array.map
+          (fun s -> { s with sh_name_str = read_section_name strtab t s })
+          sections)
 
 let read_elf buffer =
   let elf = cursor buffer in
