@@ -85,7 +85,8 @@ let macho_section_to_generic (sec : Macho.section) : section =
   {
     name = sec.sec_sectname;
     size = sec.sec_size;
-    file_size = sec.sec_size;
+    file_size =
+      (if Macho.has_file_data sec then sec.sec_size else Unsigned.UInt64.zero);
     address = sec.sec_addr;
     offset = Some (Unsigned.UInt64.of_uint32 sec.sec_offset);
     section_type;
@@ -103,7 +104,8 @@ let elf_section_to_generic (sec : Elf.section) : section =
   {
     name = sec.sh_name_str;
     size = sec.sh_size;
-    file_size = sec.sh_size;
+    file_size =
+      (if Elf.has_file_data sec then sec.sh_size else Unsigned.UInt64.zero);
     address = sec.sh_addr;
     offset = Some sec.sh_offset;
     section_type;
@@ -278,8 +280,8 @@ let find_segment (t : t) name =
 let section_contents buf (_t : t) (section : section) =
   match section.offset with
   | Some offset ->
-      Bigarray.Array1.sub buf
-        (Unsigned.UInt64.to_int offset)
+      Buffer.Read.buffer
+        (Buffer.cursor ~at:(Unsigned.UInt64.to_int offset) buf)
         (Unsigned.UInt64.to_int section.file_size)
   | None -> invalid_arg "Section has no file offset"
 

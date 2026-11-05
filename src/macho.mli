@@ -706,9 +706,15 @@ val read : Buffer.t -> header * command list
 (** [read] decodes the [header] and load [command] list, from a [Buffer.t]
     pointing to a MachO image *)
 
+val has_file_data : section -> bool
+(** [has_file_data section] is [true] if [section] has contents in the file.
+    Zero-fill sections and sections at offset 0, such as the [__TEXT] sections
+    of a dSYM, have none. *)
+
 val section_body : Buffer.t -> section -> Buffer.t
-(** [section_body macho section] returns a sub-buffer with the contents of the
-    [section] of the MachO image in [Buffer.t]. *)
+(** [section_body buffer section] returns the contents of [section] in [buffer],
+    or an empty buffer if it has no file data. Raises [Buffer.Invalid_format] if
+    [section] extends past the end of [buffer]. *)
 
 val get_section_contents : Buffer.t -> string -> Buffer.t option
 (** [get_section_contents buffer section_name] searches for a section with the
@@ -780,7 +786,8 @@ val extract_arch : Buffer.t -> fat_arch_any -> Buffer.t
 
     @param buffer The complete FAT binary buffer
     @param arch The architecture descriptor to extract
-    @return A sub-buffer containing just that architecture's Mach-O binary *)
+    @return A sub-buffer containing just that architecture's Mach-O binary
+    @raise Buffer.Invalid_format if [arch] extends past the end of [buffer] *)
 
 val arch_name : fat_arch_any -> string
 (** [arch_name arch] returns the architecture name as a string (e.g. "x86_64",

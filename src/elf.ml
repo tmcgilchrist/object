@@ -554,10 +554,14 @@ let find_section sections name =
     None
   with Found section -> Some section
 
+let has_file_data shdr = Unsigned.UInt32.to_int shdr.sh_type <> 8 (* NOBITS *)
+
 let section_body buffer shdr =
-  Bigarray.Array1.sub buffer
-    (Unsigned.UInt64.to_int shdr.sh_offset)
-    (Unsigned.UInt64.to_int shdr.sh_size)
+  if not (has_file_data shdr) then Bigarray.Array1.sub buffer 0 0
+  else
+    Read.buffer
+      (cursor ~at:(Unsigned.UInt64.to_int shdr.sh_offset) buffer)
+      (Unsigned.UInt64.to_int shdr.sh_size)
 
 let read_section_contents buf sections section_name =
   match find_section sections section_name with

@@ -169,17 +169,26 @@ let test_fat_arch_count () =
     (Invalid_format "table extends past the end of the buffer") (fun () ->
       ignore (Object.Macho.read_fat buffer))
 
+let le32 n =
+  [ n land 0xff; (n lsr 8) land 0xff; (n lsr 16) land 0xff; n lsr 24 ]
+
+let le64 n = le32 n @ [ 0; 0; 0; 0 ]
+
+let name16 s =
+  List.init 16 (fun i -> if i < String.length s then Char.code s.[i] else 0)
+
+(* A 64-bit Mach-O object header followed by one load command. *)
+let macho_object command =
+  let header =
+    List.concat_map le32
+      [ 0xfeedfacf; 0x0100000c; 0; 1; 1; List.length command; 0; 0 ]
+  in
+  buffer_of_array (Array.of_list (header @ command))
+
 (* A 64-bit Mach-O header followed by an empty LC_SEGMENT_64 of [cmdsize]
    bytes. *)
 let macho_segment_64 cmdsize =
-  let u32 n =
-    [ n land 0xff; (n lsr 8) land 0xff; (n lsr 16) land 0xff; n lsr 24 ]
-  in
-  let header =
-    List.concat_map u32 [ 0xfeedfacf; 0x0100000c; 0; 1; 1; cmdsize; 0; 0 ]
-  in
-  let command = u32 0x19 @ u32 cmdsize @ List.init (cmdsize - 8) (fun _ -> 0) in
-  buffer_of_array (Array.of_list (header @ command))
+  macho_object (le32 0x19 @ le32 cmdsize @ List.init (cmdsize - 8) (fun _ -> 0))
 
 (* A segment_command_64 is 72 bytes. *)
 let test_macho_cmdsize () =
@@ -189,6 +198,110 @@ let test_macho_cmdsize () =
       Object.Macho.read (macho_segment_64 71));
   let _header, commands = Object.Macho.read (macho_segment_64 72) in
   Alcotest.(check int) "cmdsize 72" 1 (List.length commands)
+
+(* .symtab in [elf_symtab_entsize1] claims 0x7fffffff bytes at offset 0x40. *)
+let test_elf_section_out_of_bounds () =
+  let buffer = buffer_of_hex elf_symtab_entsize1 in
+  let _header, sections = Object.Elf.read_elf buffer in
+  raises_invalid_format ".symtab contents" (fun () ->
+      Object.Elf.read_section_contents buffer sections ".symtab")
+
+(* The same section as SHT_NOBITS has no file contents, whatever its size. *)
+let test_elf_nobits () =
+  let buffer = buffer_of_hex elf_symtab_entsize1 in
+  buffer.{0xdc} <- 8 (* .symtab sh_type *);
+  let _header, sections = Object.Elf.read_elf buffer in
+  match Object.Elf.read_section_contents buffer sections ".symtab" with
+  | Some contents ->
+      Alcotest.(check int) "empty" 0 (Bigarray.Array1.dim contents)
+  | None -> Alcotest.fail "expected .symtab"
+
+(* A 296-byte Mach-O object with a __DATA segment holding zero-fill __bss, a
+   dSYM-style __const at offset 0, an 8-byte __data and a __huge running past
+   the end of the file. *)
+let macho_data_sections =
+  let sections =
+    [
+      ("__bss", 0x40, 0x1000, 1 (* S_ZEROFILL *));
+      ("__const", 0, 16, 0);
+      ("__data", 32, 8, 0);
+      ("__huge", 32, 4096, 0);
+    ]
+  in
+  let section (name, offset, size, flags) =
+    name16 name @ name16 "__DATA" @ le64 0 @ le64 size
+    @ List.concat_map le32 [ offset; 0; 0; 0; flags; 0; 0; 0 ]
+  in
+  let cmdsize = 72 + (80 * List.length sections) in
+  macho_object
+    (le32 0x19 @ le32 cmdsize @ name16 "__DATA"
+    @ List.concat_map le64 [ 0; 0; 0; 0 ]
+    @ List.concat_map le32 [ 7; 3; List.length sections; 0 ]
+    @ List.concat_map section sections)
+
+let test_macho_section_body () =
+  let buffer = macho_data_sections in
+  let _header, commands = Object.Macho.read buffer in
+  let sections =
+    List.concat_map
+      (function
+        | Object.Macho.LC_SEGMENT_64 seg ->
+            Array.to_list (Lazy.force seg).seg_sections
+        | _ -> [])
+      commands
+  in
+  let body name =
+    Object.Macho.section_body buffer
+      (List.find (fun s -> s.Object.Macho.sec_sectname = name) sections)
+  in
+  let size name = Bigarray.Array1.dim (body name) in
+  Alcotest.(check int) "__bss" 0 (size "__bss");
+  Alcotest.(check int) "__const" 0 (size "__const");
+  Alcotest.(check int) "__data" 8 (size "__data");
+  raises_invalid_format "__huge" (fun () -> body "__huge")
+
+let test_section_contents () =
+  let open Object.Object_format in
+  let buffer = macho_data_sections in
+  let t = read buffer in
+  let section name = Option.get (find_section t name) in
+  let file_size name = Unsigned.UInt64.to_int (section name).file_size in
+  Alcotest.(check int) "__bss file_size" 0 (file_size "__bss");
+  Alcotest.(check int) "__const file_size" 0 (file_size "__const");
+  Alcotest.(check int) "__data file_size" 8 (file_size "__data");
+  Alcotest.(check int)
+    "__bss contents" 0
+    (Bigarray.Array1.dim (section_contents buffer t (section "__bss")));
+  raises_invalid_format "__huge contents" (fun () ->
+      section_contents buffer t (section "__huge"))
+
+(* A FAT header with one arch claiming 0x1000 bytes at 0x1000. *)
+let test_extract_arch_out_of_bounds () =
+  let buffer =
+    buffer_of_hex "cafebabe00000001010000070000000300001000000010000000000c"
+  in
+  let fat = Object.Macho.read_fat buffer in
+  raises_invalid_format "extract_arch" (fun () ->
+      Object.Macho.extract_arch buffer fat.fat_archs.(0))
+
+let test_pe_section_contents_out_of_bounds () =
+  let u32 = Unsigned.UInt32.of_int and u16 = Unsigned.UInt16.of_int in
+  let section : Object.Pe.section_header =
+    {
+      name = ".text";
+      virtual_size = u32 100;
+      virtual_address = u32 0x1000;
+      size_of_raw_data = u32 100;
+      pointer_to_raw_data = u32 0;
+      pointer_to_relocations = u32 0;
+      pointer_to_line_numbers = u32 0;
+      number_of_relocations = u16 0;
+      number_of_line_numbers = u16 0;
+      characteristics = [];
+    }
+  in
+  raises_invalid_format "section_contents" (fun () ->
+      Object.Pe.section_contents (buffer_of_array [| 0; 0; 0; 0 |]) section)
 
 let () =
   let open Alcotest in
@@ -217,4 +330,15 @@ let () =
           test_case "fat arch count" `Quick test_fat_arch_count;
         ] );
       ("macho", [ test_case "cmdsize minimum" `Quick test_macho_cmdsize ]);
+      ( "section contents",
+        [
+          test_case "ELF out of bounds" `Quick test_elf_section_out_of_bounds;
+          test_case "ELF NOBITS" `Quick test_elf_nobits;
+          test_case "Mach-O section_body" `Quick test_macho_section_body;
+          test_case "Object_format" `Quick test_section_contents;
+          test_case "fat arch out of bounds" `Quick
+            test_extract_arch_out_of_bounds;
+          test_case "PE out of bounds" `Quick
+            test_pe_section_contents_out_of_bounds;
+        ] );
     ]

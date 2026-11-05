@@ -1061,7 +1061,7 @@ let section_contents (buf : Buffer.t) (sh : section_header) : Buffer.t =
   let open Unsigned in
   let offset = UInt32.to_int sh.pointer_to_raw_data in
   let size = UInt32.to_int sh.size_of_raw_data in
-  Bigarray.Array1.sub buf offset size
+  Buffer.Read.buffer (Buffer.cursor ~at:offset buf) size
 
 (* Find the section whose virtual address range contains [rva]. *)
 let section_at_rva sections rva =

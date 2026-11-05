@@ -671,8 +671,8 @@ val section_is_discardable : section_header -> bool
     discarded as needed (has IMAGE_SCN_MEM_DISCARDABLE flag). *)
 
 val section_contents : Buffer.t -> section_header -> Buffer.t
-(** [section_contents buf section] returns a buffer containing the raw data of
-    the section. *)
+(** [section_contents buf section] returns the raw data of [section] in [buf].
+    Raises [Buffer.Invalid_format] if it extends past the end of [buf]. *)
 
 (** {2 Debug Directory}
 
