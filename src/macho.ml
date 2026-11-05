@@ -963,7 +963,13 @@ let read_toc t =
   let module_index = Read.u32 t in
   { symbol_index; module_index }
 
-let read_n_times f t n = Array.init n (fun _ -> f t)
+(* Read [n] entries of [size] bytes each, checking first that they fit in the
+   buffer so a corrupt count can't trigger a huge allocation. *)
+let read_n_times ~size f t n =
+  if n = 0 then [||]
+  else (
+    ensure t (n * size) "table extends past the end of the buffer";
+    Array.init n (fun _ -> f t))
 
 let read_twolevelhint t =
   let word = Unsigned.UInt32.to_int (Read.u32 t) in
@@ -973,7 +979,7 @@ let read_twolevelhint t =
 let read_twolevelhints buf t =
   let offset = Read.u32 t in
   let nhints = Read.u32 t in
-  read_n_times read_twolevelhint
+  read_n_times ~size:4 read_twolevelhint
     (cursor buf ~at:(Unsigned.UInt32.to_int offset))
     (Unsigned.UInt32.to_int nhints)
 
@@ -982,7 +988,9 @@ let rec read_thread t =
   else
     let flavor = Read.u32 t in
     let count = Read.u32 t in
-    let state = read_n_times Read.u32 t (Unsigned.UInt32.to_int count) in
+    let state =
+      read_n_times ~size:4 Read.u32 t (Unsigned.UInt32.to_int count)
+    in
     (flavor, state) :: read_thread t
 
 let read_relocation_info _t header ri_address value =
@@ -1089,7 +1097,7 @@ let read_dynamic_symbol_table header t buf =
   let tocoff = Read.u32 t in
   let ntoc = Read.u32 t in
   let toc_entries =
-    read_n_times read_toc
+    read_n_times ~size:8 read_toc
       (cursor buf ~at:(Unsigned.UInt32.to_int tocoff))
       (Unsigned.UInt32.to_int ntoc)
   in
@@ -1097,6 +1105,7 @@ let read_dynamic_symbol_table header t buf =
   let nmodtab = Read.u32 t in
   let modules =
     read_n_times
+      ~size:(if is64bit header then 56 else 52)
       (if is64bit header then read_module_64 else read_module_32)
       (cursor buf ~at:(Unsigned.UInt32.to_int modtaboff))
       (Unsigned.UInt32.to_int nmodtab)
@@ -1104,28 +1113,28 @@ let read_dynamic_symbol_table header t buf =
   let extrefsymoff = Read.u32 t in
   let nextrefsyms = Read.u32 t in
   let ext_ref_syms =
-    read_n_times Read.u32
+    read_n_times ~size:4 Read.u32
       (cursor buf ~at:(Unsigned.UInt32.to_int extrefsymoff))
       (Unsigned.UInt32.to_int nextrefsyms)
   in
   let indirectsymoff = Read.u32 t in
   let nindirectsyms = Read.u32 t in
   let indirect_syms =
-    read_n_times Read.u32
+    read_n_times ~size:4 Read.u32
       (cursor buf ~at:(Unsigned.UInt32.to_int indirectsymoff))
       (Unsigned.UInt32.to_int nindirectsyms)
   in
   let extreloff = Read.u32 t in
   let nextrel = Read.u32 t in
   let ext_rels =
-    read_n_times (read_relocation header)
+    read_n_times ~size:8 (read_relocation header)
       (cursor buf ~at:(Unsigned.UInt32.to_int extreloff))
       (Unsigned.UInt32.to_int nextrel)
   in
   let locreloff = Read.u32 t in
   let nlocrel = Read.u32 t in
   let loc_rels =
-    read_n_times (read_relocation header)
+    read_n_times ~size:8 (read_relocation header)
       (cursor buf ~at:(Unsigned.UInt32.to_int locreloff))
       (Unsigned.UInt32.to_int nlocrel)
   in
@@ -1208,7 +1217,7 @@ let read_section_32 header buf t =
   let reloff = Read.u32 t in
   let nreloc = Read.u32 t in
   let sec_relocs =
-    read_n_times (read_relocation header)
+    read_n_times ~size:8 (read_relocation header)
       (cursor buf ~at:(Unsigned.UInt32.to_int reloff))
       (Unsigned.UInt32.to_int nreloc)
   in
@@ -1270,7 +1279,10 @@ let read_segment_32 header buf t =
   let nsects = Read.u32 t in
   let seg_flags = read_seg_flag t in
   let seg_sections =
-    read_n_times (read_section_32 header buf) t (Unsigned.UInt32.to_int nsects)
+    read_n_times ~size:68
+      (read_section_32 header buf)
+      t
+      (Unsigned.UInt32.to_int nsects)
   in
   {
     seg_segname;
@@ -1294,7 +1306,7 @@ let read_section_64 header buf t =
   let reloff = Read.u32 t in
   let nreloc = Read.u32 t in
   let relocs =
-    read_n_times (read_relocation header)
+    read_n_times ~size:8 (read_relocation header)
       (cursor buf ~at:(Unsigned.UInt32.to_int reloff))
       (Unsigned.UInt32.to_int nreloc)
   in
@@ -1331,7 +1343,10 @@ let read_segment_64 header buf t =
   let nsects = Read.u32 t in
   let seg_flags = read_seg_flag t in
   let seg_sections =
-    read_n_times (read_section_64 header buf) t (Unsigned.UInt32.to_int nsects)
+    read_n_times ~size:80
+      (read_section_64 header buf)
+      t
+      (Unsigned.UInt32.to_int nsects)
   in
   {
     seg_segname;
@@ -1397,7 +1412,7 @@ let read_build_version_command t =
   let sdk = Read.u32 t in
   let ntools = Read.u32 t in
   let tools =
-    read_n_times
+    read_n_times ~size:8
       (fun t ->
         let tool = Read.u32 t in
         let version = Read.u32 t in
@@ -1420,7 +1435,7 @@ let read_prebound_dylib buf t =
   let nmodules = Read.u32 t in
   let modulesoff = Read.u32 t in
   let modules =
-    read_n_times Read.u8
+    read_n_times ~size:1 Read.u8
       (cursor ~at:(Unsigned.UInt32.to_int modulesoff) buf)
       ((Unsigned.UInt32.to_int nmodules / 8)
       + (Unsigned.UInt32.to_int nmodules mod 8))
@@ -1498,6 +1513,7 @@ let read_symbol_table header buf t =
   let symcursor = cursor buf ~at:(Unsigned.UInt32.to_int symoff) in
   let symbols =
     read_n_times
+      ~size:(if is64bit header then 16 else 12)
       (read_symbol header strsect.buffer)
       symcursor
       (Unsigned.UInt32.to_int nsyms)
@@ -1687,9 +1703,11 @@ let read_fat buffer =
   let fat_archs =
     match fat_magic with
     | FAT_MAGIC | FAT_CIGAM ->
-        Array.init nfat_arch (fun _ -> `Fat_arch (read_fat_arch t))
+        read_n_times ~size:20 (fun t -> `Fat_arch (read_fat_arch t)) t nfat_arch
     | FAT_MAGIC_64 | FAT_CIGAM_64 ->
-        Array.init nfat_arch (fun _ -> `Fat_arch_64 (read_fat_arch_64 t))
+        read_n_times ~size:32
+          (fun t -> `Fat_arch_64 (read_fat_arch_64 t))
+          t nfat_arch
   in
   { fat_magic; fat_archs }
 
@@ -1750,8 +1768,8 @@ let validate_fat buffer =
     let errors = ref [] in
     let nfat_arch = Array.length fat_header.fat_archs in
     if nfat_arch = 0 then errors := Invalid_arch_count 0 :: !errors;
-    Array.iteri
-      (fun i arch1 ->
+    Array.iter
+      (fun arch1 ->
         let offset1, size1, align1, name1 =
           match arch1 with
           | `Fat_arch fa ->
@@ -1769,20 +1787,25 @@ let validate_fat buffer =
           errors :=
             Out_of_bounds (name1, offset1, size1, buffer_size) :: !errors;
         if align1 > 0 && offset1 land ((1 lsl align1) - 1) <> 0 then
-          errors := Invalid_alignment (name1, offset1, align1) :: !errors;
-        for j = i + 1 to nfat_arch - 1 do
-          let arch2 = fat_header.fat_archs.(j) in
-          let offset2, size2 =
-            match arch2 with
-            | `Fat_arch fa ->
-                ( Unsigned.UInt32.to_int fa.fa_offset,
-                  Unsigned.UInt32.to_int fa.fa_size )
-            | `Fat_arch_64 fa64 ->
-                ( Unsigned.UInt64.to_int fa64.fa64_offset,
-                  Unsigned.UInt64.to_int fa64.fa64_size )
-          in
-          if not (offset1 + size1 <= offset2 || offset2 + size2 <= offset1) then
-            errors := Overlap (offset1, size1, offset2, size2) :: !errors
-        done)
+          errors := Invalid_alignment (name1, offset1, align1) :: !errors)
       fat_header.fat_archs;
+    (* Sorted by offset, any overlap shows up between neighbours, so only
+       adjacent pairs need checking rather than every pair. *)
+    let extents =
+      Array.map
+        (function
+          | `Fat_arch fa ->
+              ( Unsigned.UInt32.to_int fa.fa_offset,
+                Unsigned.UInt32.to_int fa.fa_size )
+          | `Fat_arch_64 fa64 ->
+              ( Unsigned.UInt64.to_int fa64.fa64_offset,
+                Unsigned.UInt64.to_int fa64.fa64_size ))
+        fat_header.fat_archs
+    in
+    Array.sort compare extents;
+    for i = 1 to nfat_arch - 1 do
+      let offset1, size1 = extents.(i - 1) and offset2, size2 = extents.(i) in
+      if offset2 < offset1 + size1 then
+        errors := Overlap (offset1, size1, offset2, size2) :: !errors
+    done;
     if !errors = [] then Ok () else Error (List.rev !errors)
