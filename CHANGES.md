@@ -33,6 +33,12 @@
 - #23: `Macho.read` and `Object_format.read` raise an `Invalid_format` naming
   the functions that select an architecture when given a FAT binary, instead
   of failing with "magic"
+- #24: Fix Mach-O bit-field decoding. Relocation symbol numbers, pc-relative,
+  length and extern fields, scattered relocations and two-level hints were
+  misread. Symbol reference flags now decode `REFERENCED_DYNAMICALLY`,
+  `SYM_WEAK_REF` and `SYM_WEAK_DEF` from the right bits, and two-level images
+  give undefined symbols their library ordinal from bits 8-15. 64-bit images
+  never treat a relocation as scattered
 
 # 0.1
 

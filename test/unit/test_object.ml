@@ -178,10 +178,10 @@ let name16 s =
   List.init 16 (fun i -> if i < String.length s then Char.code s.[i] else 0)
 
 (* A 64-bit Mach-O object header followed by one load command and [data]. *)
-let macho_object ?(data = []) command =
+let macho_object ?(cputype = 0x0100000c) ?(flags = 0) ?(data = []) command =
   let header =
     List.concat_map le32
-      [ 0xfeedfacf; 0x0100000c; 0; 1; 1; List.length command; 0; 0 ]
+      [ 0xfeedfacf; cputype; 0; 1; 1; List.length command; flags; 0 ]
   in
   buffer_of_array (Array.of_list (header @ command @ data))
 
@@ -249,14 +249,14 @@ let test_macho_prebound_dylib () =
   | _ -> Alcotest.fail "expected LC_PREBOUND_DYLIB"
 
 (* LC_TWOLEVEL_HINTS holds a file offset: the table after the 16-byte command,
-   at 32 + 16. *)
+   at 32 + 16. Each hint is an 8-bit isub_image then a 24-bit itoc. *)
 let test_macho_twolevel_hints () =
   let command = load_command 0x16 (List.concat_map le32 [ 48; 2 ]) [] in
-  match macho_command ~data:(le32 1 @ le32 0) command with
+  match macho_command ~data:(le32 1 @ le32 0x302) command with
   | Object.Macho.LC_TWOLEVEL_HINTS (lazy hints) ->
       Alcotest.(check (list (pair int int)))
         "hints"
-        [ (1, 0); (0, 0) ]
+        [ (1, 0); (2, 3) ]
         (Array.to_list
            (Array.map
               (fun (a, b) -> Unsigned.UInt32.(to_int a, to_int b))
@@ -316,25 +316,131 @@ let test_elf_nobits () =
 (* A 296-byte Mach-O object with a __DATA segment holding zero-fill __bss, a
    dSYM-style __const at offset 0, an 8-byte __data and a __huge running past
    the end of the file. *)
+let section_64 ?(reloff = 0) ?(nreloc = 0) (name, offset, size, flags) =
+  name16 name @ name16 "__DATA" @ le64 0 @ le64 size
+  @ List.concat_map le32 [ offset; 0; reloff; nreloc; flags; 0; 0; 0 ]
+
+(* An LC_SEGMENT_64 named __DATA holding [sections]. *)
+let segment_64 sections =
+  le32 0x19
+  @ le32 (72 + (80 * List.length sections))
+  @ name16 "__DATA"
+  @ List.concat_map le64 [ 0; 0; 0; 0 ]
+  @ List.concat_map le32 [ 7; 3; List.length sections; 0 ]
+  @ List.concat sections
+
 let macho_data_sections =
-  let sections =
-    [
-      ("__bss", 0x40, 0x1000, 1 (* S_ZEROFILL *));
-      ("__const", 0, 16, 0);
-      ("__data", 32, 8, 0);
-      ("__huge", 32, 4096, 0);
-    ]
-  in
-  let section (name, offset, size, flags) =
-    name16 name @ name16 "__DATA" @ le64 0 @ le64 size
-    @ List.concat_map le32 [ offset; 0; 0; 0; flags; 0; 0; 0 ]
-  in
-  let cmdsize = 72 + (80 * List.length sections) in
   macho_object
-    (le32 0x19 @ le32 cmdsize @ name16 "__DATA"
-    @ List.concat_map le64 [ 0; 0; 0; 0 ]
-    @ List.concat_map le32 [ 7; 3; List.length sections; 0 ]
-    @ List.concat_map section sections)
+    (segment_64
+       (List.map section_64
+          [
+            ("__bss", 0x40, 0x1000, 1 (* S_ZEROFILL *));
+            ("__const", 0, 16, 0);
+            ("__data", 32, 8, 0);
+            ("__huge", 32, 4096, 0);
+          ]))
+
+let relocations buffer =
+  let _header, commands = Object.Macho.read buffer in
+  List.concat_map
+    (function
+      | Object.Macho.LC_SEGMENT_64 (lazy seg)
+      | Object.Macho.LC_SEGMENT_32 (lazy seg) ->
+          List.concat_map
+            (fun s -> Array.to_list s.Object.Macho.sec_relocs)
+            (Array.to_list seg.seg_sections)
+      | _ -> [])
+    commands
+
+(* An x86_64 section with two relocations after its 152-byte segment, at
+   32 + 152: a pc-relative 4-byte external branch to symbol 5, and one whose
+   address has bit 31 set, which a 64-bit image never treats as scattered. *)
+let test_macho_relocations () =
+  let reloc address value = le32 address @ le32 value in
+  let buffer =
+    macho_object ~cputype:0x01000007
+      ~data:(reloc 0x10 0x2d000005 @ reloc 0x80000010 0)
+      (segment_64 [ section_64 ~reloff:184 ~nreloc:2 ("__text", 0, 0, 0) ])
+  in
+  match relocations buffer with
+  | [ `Relocation_info branch; `Relocation_info high ] ->
+      let open Object.Macho in
+      Alcotest.(check int) "address" 0x10 branch.ri_address;
+      Alcotest.(check int)
+        "symbolnum" 5
+        (Unsigned.UInt32.to_int branch.ri_symbolnum);
+      Alcotest.(check bool) "pcrel" true branch.ri_pcrel;
+      Alcotest.(check int) "length" 4 (Unsigned.UInt32.to_int branch.ri_length);
+      Alcotest.(check bool) "extern" true branch.ri_extern;
+      Alcotest.(check bool) "type" true (branch.ri_type = `X86_64_RELOC_BRANCH);
+      Alcotest.(check int) "bit 31 address" 0x80000010 high.ri_address
+  | _ -> Alcotest.fail "expected two plain relocations"
+
+(* A 32-bit i386 object whose section has one scattered relocation after its
+   124-byte segment, at 28 + 124. *)
+let test_macho_scattered_relocation () =
+  let section =
+    name16 "__text" @ name16 "__TEXT"
+    @ List.concat_map le32 [ 0; 0; 0; 0; 152; 1; 0; 0; 0 ]
+  in
+  let segment =
+    le32 1 @ le32 124 @ name16 "__TEXT"
+    @ List.concat_map le32 [ 0; 0; 0; 0; 7; 5; 1; 0 ]
+    @ section
+  in
+  let header =
+    List.concat_map le32 [ 0xfeedface; 7; 3; 1; 1; List.length segment; 0 ]
+  in
+  (* R_SCATTERED, pcrel, length 2 (4 bytes), GENERIC_RELOC_SECTDIFF and
+     address 0x20, with value 0x1234. *)
+  let data = le32 0xe2000020 @ le32 0x1234 in
+  match
+    relocations (buffer_of_array (Array.of_list (header @ segment @ data)))
+  with
+  | [ `Scattered_relocation_info r ] ->
+      let open Object.Macho in
+      Alcotest.(check int) "address" 0x20 (Unsigned.UInt32.to_int r.rs_address);
+      Alcotest.(check bool) "pcrel" true r.rs_pcrel;
+      Alcotest.(check int) "length" 4 (Unsigned.UInt32.to_int r.rs_length);
+      Alcotest.(check bool) "type" true (r.rs_type = `GENERIC_RELOC_SECTDIFF);
+      Alcotest.(check int32) "value" 0x1234l r.rs_value
+  | _ -> Alcotest.fail "expected one scattered relocation"
+
+(* A two-level image (MH_TWOLEVEL) with an undefined weak reference from
+   library 2 (n_desc 0x0240) and a defined weak, dynamically referenced
+   alt-entry symbol (n_desc 0x0290), whose bits 8-15 are not an ordinal. *)
+let test_macho_reference_flags () =
+  let nlist strx n_type n_sect n_desc =
+    le32 strx @ [ n_type; n_sect; n_desc land 0xff; n_desc lsr 8 ] @ le64 0
+  in
+  let strings = bytes_of_string "\000_weak_ref\000_weak_def\000" in
+  let symtab =
+    le32 2 @ le32 24 @ List.concat_map le32 [ 56; 2; 88; List.length strings ]
+  in
+  let data = nlist 1 0x01 0 0x0240 @ nlist 11 0x0f 1 0x0290 @ strings in
+  let buffer = macho_object ~flags:0x80 ~data symtab in
+  let flags name =
+    match Object.Macho.read buffer with
+    | _, [ Object.Macho.LC_SYMTAB (lazy st) ] -> (
+        match
+          Array.find_opt (fun s -> s.Object.Macho.sym_name = name) st.symbols
+        with
+        | Some { sym_flags = `Flags flags; _ } -> flags
+        | Some { sym_flags = `Uninterpreted _; _ } | None ->
+            Alcotest.fail ("expected flags for " ^ name))
+    | _ -> Alcotest.fail "expected LC_SYMTAB"
+  in
+  let check name flag expected =
+    Alcotest.(check bool) name expected (List.mem flag (flags name))
+  in
+  let ordinal n = `LIBRARY_ORDINAL (Unsigned.UInt16.of_int n) in
+  check "_weak_ref" `SYM_WEAK_REF true;
+  check "_weak_ref" (ordinal 2) true;
+  check "_weak_ref" `REFERENCED_DYNAMICALLY false;
+  check "_weak_def" `SYM_WEAK_DEF true;
+  check "_weak_def" `REFERENCED_DYNAMICALLY true;
+  check "_weak_def" `SYM_WEAK_REF false;
+  check "_weak_def" (ordinal 2) false
 
 let test_macho_section_body () =
   let buffer = macho_data_sections in
@@ -508,6 +614,10 @@ let () =
           test_case "twolevel hints" `Quick test_macho_twolevel_hints;
           test_case "unhandled command" `Quick test_macho_unhandled;
           test_case "FAT binary" `Quick test_macho_fat_read;
+          test_case "relocations" `Quick test_macho_relocations;
+          test_case "scattered relocation" `Quick
+            test_macho_scattered_relocation;
+          test_case "reference flags" `Quick test_macho_reference_flags;
         ] );
       ( "elf section headers",
         [
