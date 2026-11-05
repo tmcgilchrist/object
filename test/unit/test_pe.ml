@@ -535,6 +535,14 @@ let test_coff_detection () =
   Alcotest.(check bool) "image not is_coff" false (Pe.is_coff pe);
   Alcotest.(check bool) "image is_pe" true (Pe.is_pe pe)
 
+(* Object_format detects a bare COFF object as PE and reads its sections. *)
+let test_coff_object_format () =
+  let coff = build_coff () in
+  Alcotest.(check bool) "detect_format" true (Of.detect_format coff = Of.PE);
+  Alcotest.(check bool)
+    ".debug_info" true
+    (Option.is_some (Of.find_section (Of.read coff) ".debug_info"))
+
 (* --- Header parsing --- *)
 
 (* A COFF object has no optional header and parses from offset 0. *)
@@ -749,6 +757,7 @@ let () =
       ( "COFF: headers",
         [
           Alcotest.test_case "format detection" `Quick test_coff_detection;
+          Alcotest.test_case "Object_format" `Quick test_coff_object_format;
           Alcotest.test_case "read headers" `Quick test_coff_headers;
         ] );
       ( "COFF: sections",

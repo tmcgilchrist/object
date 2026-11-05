@@ -1,6 +1,6 @@
 open Object_types
 
-exception Invalid_format of string
+exception Invalid_format = Buffer.Invalid_format
 
 type arch =
   [ `X86 | `X86_64 | `ARM | `ARM64 | `POWERPC | `POWERPC64 | `Unknown of int ]
@@ -136,7 +136,8 @@ let detect_format_internal (buf : Buffer.t) : format =
       MACHO (* FAT/Universal binaries contain Mach-O *)
   | _ ->
       let magic16 = magic_int land 0xFFFF in
-      if magic16 = 0x5A4D then PE else failwith "Unsupported file format"
+      if magic16 = 0x5A4D || Pe.is_coff buf then PE
+      else raise (Invalid_format "Unsupported file format")
 
 (** Parse Mach-O file *)
 let parse_macho (buf : Buffer.t) : t =

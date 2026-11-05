@@ -3,7 +3,7 @@ open Object_types
 (** Generic abstraction over ELF and Mach-O object file formats *)
 
 exception Invalid_format of string
-(** Exception raised when file format is invalid or unsupported *)
+(** Exception raised when file format is invalid or unsupported. *)
 
 type arch =
   [ `X86 | `X86_64 | `ARM | `ARM64 | `POWERPC | `POWERPC64 | `Unknown of int ]
@@ -80,7 +80,7 @@ val is_64bit : t -> bool
 val is_executable : t -> bool
 
 val detect_format : Buffer.t -> format
-(** Detect file format from buffer using magic numbers *)
+(** Detect file format from buffer using magic numbers. *)
 
 (** {2 Multi-Architecture Support} *)
 

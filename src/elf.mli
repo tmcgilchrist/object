@@ -343,7 +343,8 @@ val read_elf : Buffer.t -> header * section array
     pointing to an ELF image. Extended section numbering is resolved, so the
     array holds every section. A file without a section header table gives an
     empty array, and one whose [e_shstrndx] is [SHN_UNDEF] gives sections with
-    empty names. Raises [Buffer.Invalid_format] if the section header table or
+    empty names. Raises [Buffer.Invalid_format] if the file is not a
+    little-endian ELFCLASS64 image, or if the section header table or
     [e_shstrndx] is invalid. *)
 
 (** {1 ELF Sections and Segments}
