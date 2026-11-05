@@ -177,13 +177,13 @@ let le64 n = le32 n @ [ 0; 0; 0; 0 ]
 let name16 s =
   List.init 16 (fun i -> if i < String.length s then Char.code s.[i] else 0)
 
-(* A 64-bit Mach-O object header followed by one load command. *)
-let macho_object command =
+(* A 64-bit Mach-O object header followed by one load command and [data]. *)
+let macho_object ?(data = []) command =
   let header =
     List.concat_map le32
       [ 0xfeedfacf; 0x0100000c; 0; 1; 1; List.length command; 0; 0 ]
   in
-  buffer_of_array (Array.of_list (header @ command))
+  buffer_of_array (Array.of_list (header @ command @ data))
 
 (* A 64-bit Mach-O header followed by an empty LC_SEGMENT_64 of [cmdsize]
    bytes. *)
@@ -198,6 +198,78 @@ let test_macho_cmdsize () =
       Object.Macho.read (macho_segment_64 71));
   let _header, commands = Object.Macho.read (macho_segment_64 72) in
   Alcotest.(check int) "cmdsize 72" 1 (List.length commands)
+
+let bytes_of_string s = List.init (String.length s) (fun i -> Char.code s.[i])
+
+(* Load command [cmd] with [fields] after its header, then [tail], padded to a
+   multiple of 8 bytes. *)
+let load_command cmd fields tail =
+  let size = 8 + List.length fields + List.length tail in
+  let pad = (8 - (size mod 8)) mod 8 in
+  le32 cmd @ le32 (size + pad) @ fields @ tail @ List.init pad (fun _ -> 0)
+
+let macho_command ?data command =
+  match Object.Macho.read (macho_object ?data command) with
+  | _header, [ command ] -> command
+  | _header, _ -> Alcotest.fail "expected one load command"
+
+(* lc_str offsets count from the start of the load command, header included. *)
+let test_macho_lc_str () =
+  let open Object.Macho in
+  let string_at offset s = (le32 offset, bytes_of_string (s ^ "\000")) in
+  let command cmd (fields, tail) =
+    macho_command (load_command cmd fields tail)
+  in
+  let dylib = "/usr/lib/libfoo.dylib" in
+  let fields, tail = string_at 24 dylib in
+  (match command 0xc (fields @ List.concat_map le32 [ 0; 0; 0 ], tail) with
+  | LC_LOAD_DYLIB (lazy d) -> Alcotest.(check string) "dylib" dylib d.dylib_name
+  | _ -> Alcotest.fail "expected LC_LOAD_DYLIB");
+  (match command 0xe (string_at 12 "/usr/lib/dyld") with
+  | LC_LOAD_DYLINKER s -> Alcotest.(check string) "dylinker" "/usr/lib/dyld" s
+  | _ -> Alcotest.fail "expected LC_LOAD_DYLINKER");
+  match command 0x8000001c (string_at 12 "@executable_path/../lib") with
+  | LC_RPATH s -> Alcotest.(check string) "rpath" "@executable_path/../lib" s
+  | _ -> Alcotest.fail "expected LC_RPATH"
+
+(* An LC_PREBOUND_DYLIB for 10 modules: the name at 20, then a 2-byte bit
+   vector at 27. *)
+let test_macho_prebound_dylib () =
+  let command =
+    load_command 0x10
+      (List.concat_map le32 [ 20; 10; 27 ])
+      (bytes_of_string "libfoo\000" @ [ 0xff; 0x03 ])
+  in
+  match macho_command command with
+  | Object.Macho.LC_PREBOUND_DYLIB (lazy (name, modules)) ->
+      Alcotest.(check string) "name" "libfoo" name;
+      Alcotest.(check (list int))
+        "linked_modules" [ 0xff; 0x03 ]
+        (Array.to_list (Array.map Unsigned.UInt8.to_int modules))
+  | _ -> Alcotest.fail "expected LC_PREBOUND_DYLIB"
+
+(* LC_TWOLEVEL_HINTS holds a file offset: the table after the 16-byte command,
+   at 32 + 16. *)
+let test_macho_twolevel_hints () =
+  let command = load_command 0x16 (List.concat_map le32 [ 48; 2 ]) [] in
+  match macho_command ~data:(le32 1 @ le32 0) command with
+  | Object.Macho.LC_TWOLEVEL_HINTS (lazy hints) ->
+      Alcotest.(check (list (pair int int)))
+        "hints"
+        [ (1, 0); (0, 0) ]
+        (Array.to_list
+           (Array.map
+              (fun (a, b) -> Unsigned.UInt32.(to_int a, to_int b))
+              hints))
+  | _ -> Alcotest.fail "expected LC_TWOLEVEL_HINTS"
+
+(* LC_UNHANDLED still carries the command body without its header. *)
+let test_macho_unhandled () =
+  match macho_command (load_command 0x99 [ 1; 2; 3; 4; 5; 6; 7; 8 ] []) with
+  | Object.Macho.LC_UNHANDLED (0x99, body) ->
+      Alcotest.(check int) "length" 8 (Bigarray.Array1.dim body);
+      Alcotest.(check int) "first byte" 1 body.{0}
+  | _ -> Alcotest.fail "expected LC_UNHANDLED"
 
 (* .symtab in [elf_symtab_entsize1] claims 0x7fffffff bytes at offset 0x40. *)
 let test_elf_section_out_of_bounds () =
@@ -403,7 +475,14 @@ let () =
           test_case "ELF symbol count overflow" `Quick test_elf_symtab_overflow;
           test_case "fat arch count" `Quick test_fat_arch_count;
         ] );
-      ("macho", [ test_case "cmdsize minimum" `Quick test_macho_cmdsize ]);
+      ( "macho",
+        [
+          test_case "cmdsize minimum" `Quick test_macho_cmdsize;
+          test_case "lc_str offsets" `Quick test_macho_lc_str;
+          test_case "prebound dylib" `Quick test_macho_prebound_dylib;
+          test_case "twolevel hints" `Quick test_macho_twolevel_hints;
+          test_case "unhandled command" `Quick test_macho_unhandled;
+        ] );
       ( "elf section headers",
         [
           test_case "no section headers" `Quick test_elf_no_section_headers;

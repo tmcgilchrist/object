@@ -25,6 +25,11 @@
   `Object_format.detect_format`. Reject big-endian ELF explicitly instead of
   misreading it. `Object_format.Invalid_format` is now the same exception as
   `Buffer.Invalid_format`. `Object_format` detects bare COFF objects as `PE`
+- #22: Fix Mach-O load command offsets. Dylib, dylinker, sub-framework and
+  prebound dylib names lost their first 8 bytes, `LC_RPATH` paths were read
+  from the start of the file, and `LC_TWOLEVEL_HINTS` read its table from the
+  command instead of the file. `LC_PREBOUND_DYLIB` reads `(n + 7) / 8` bytes of
+  module bit vector
 
 # 0.1
 
