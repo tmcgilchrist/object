@@ -959,7 +959,8 @@ let read_header buf =
   let _header_size = buf.position - start in
   (size_of_cmds, { magic; cpu_type; cpu_subtype; file_type; flags })
 
-let bits ofs sz n = (n lsl (32 - ofs - sz)) lsr (32 - sz)
+(* The [sz]-bit field starting at bit [ofs] of [n]. *)
+let bits ofs sz n = (n lsr ofs) land ((1 lsl sz) - 1)
 
 let read_toc t =
   let symbol_index = Read.u32 t in
@@ -1008,17 +1009,19 @@ let read_relocation_info _t header ri_address value =
 
 let read_scattered_relocation_info _t header address value =
   {
-    rs_pcrel = bits 1 1 address = 1;
-    rs_length = Unsigned.UInt32.of_int (1 lsl bits 2 2 address);
-    rs_type = reloc_type header.cpu_type (bits 4 4 address);
-    rs_address = Unsigned.UInt32.of_int (bits 8 24 address);
+    rs_pcrel = bits 30 1 address = 1;
+    rs_length = Unsigned.UInt32.of_int (1 lsl bits 28 2 address);
+    rs_type = reloc_type header.cpu_type (bits 24 4 address);
+    rs_address = Unsigned.UInt32.of_int (bits 0 24 address);
     rs_value = value;
   }
 
+(* R_SCATTERED (bit 31 of the address) marks a scattered relocation, which
+   64-bit images never use. *)
 let read_relocation header t =
   let address = Read.u32 t in
   let value = Read.u32 t in
-  if Unsigned.UInt32.to_int address land 0x80000000 = 0 then
+  if is64bit header || Unsigned.UInt32.to_int address land 0x80000000 = 0 then
     `Relocation_info
       (read_relocation_info t header
          (Unsigned.UInt32.to_int address)
@@ -1464,16 +1467,17 @@ let reference_flag_lo16 = function
 
 let reference_flag_hi16 n =
   decode_flags n []
-    [ (0, `REFERENCED_DYNAMICALLY); (2, `SYM_WEAK_REF); (3, `SYM_WEAK_DEF) ]
+    [ (4, `REFERENCED_DYNAMICALLY); (6, `SYM_WEAK_REF); (7, `SYM_WEAK_DEF) ]
 
-let reference_flags header v =
-  if List.mem `TWOLEVEL header.flags then
-    (* Something fishy here, check spec FIXME *)
-    [
-      reference_flag_lo16 (v land 0xF);
-      `LIBRARY_ORDINAL (Unsigned.UInt16.of_int (v land 0xf0));
-    ]
-  else reference_flag_lo16 (v land 0xF) :: reference_flag_hi16 v
+(* The library ordinal in bits 8-15 of n_desc only applies to undefined
+   symbols in two-level images, as defined symbols use those bits for other
+   flags. *)
+let reference_flags header sym_type v =
+  let flags = reference_flag_lo16 (v land 0x7) :: reference_flag_hi16 v in
+  if List.mem `TWOLEVEL header.flags && (sym_type = `UNDF || sym_type = `PBUD)
+  then
+    flags @ [ `LIBRARY_ORDINAL (Unsigned.UInt16.of_int ((v lsr 8) land 0xff)) ]
+  else flags
 
 let sym_types n =
   if n land 0xe0 = 0 then
@@ -1493,7 +1497,9 @@ let read_symbol read_value header buf t =
   let sym_flags = Read.u16 t in
   let sym_flags =
     if stabs then `Uninterpreted sym_flags
-    else `Flags (reference_flags header (Unsigned.UInt16.to_int sym_flags))
+    else
+      `Flags
+        (reference_flags header sym_type (Unsigned.UInt16.to_int sym_flags))
   in
   let sym_value = read_value t in
   { sym_name; sym_type; sym_pext; sym_ext; sym_sect; sym_flags; sym_value }
