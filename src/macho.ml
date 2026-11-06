@@ -1434,11 +1434,11 @@ let read_prebound_dylib buf t =
   let name = read_lc_string buf t in
   let nmodules = Read.u32 t in
   let modulesoff = Read.u32 t in
+  (* linked_modules is a bit vector with one bit per module. *)
   let modules =
     read_n_times ~size:1 Read.u8
       (cursor ~at:(Unsigned.UInt32.to_int modulesoff) buf)
-      ((Unsigned.UInt32.to_int nmodules / 8)
-      + (Unsigned.UInt32.to_int nmodules mod 8))
+      ((Unsigned.UInt32.to_int nmodules + 7) / 8)
   in
   (name, modules)
 
@@ -1558,12 +1558,16 @@ let min_cmdsize = function
   | _ (* LC_THREAD, LC_UNIXTHREAD and unhandled commands *) -> 8
 
 let read_load_command header buf t =
+  let start = t.position in
   let cmd = Unsigned.UInt32.to_int (Read.u32 t) in
   let cmdsize = Unsigned.UInt32.to_int (Read.u32 t) in
   if cmdsize < min_cmdsize cmd then
     invalid_format
       (Printf.sprintf "load command 0x%x: cmdsize %d is too small" cmd cmdsize);
-  let t = sub t (cmdsize - 8) in
+  (* Keep the 8-byte header in [t.buffer], since lc_str offsets are relative to
+     the start of the command. *)
+  seek t start;
+  let t = cursor ~at:8 (Read.buffer t cmdsize) in
   match cmd with
   | 0x00000001 -> LC_SEGMENT_32 (lazy (read_segment_32 header buf t))
   | 0x00000002 -> LC_SYMTAB (lazy (read_symbol_table header buf t))
@@ -1578,7 +1582,7 @@ let read_load_command header buf t =
   | 0x00000013 -> LC_SUB_UMBRELLA (read_lc_string t.buffer t)
   | 0x00000014 -> LC_SUB_CLIENT (read_lc_string t.buffer t)
   | 0x00000015 -> LC_SUB_LIBRARY (read_lc_string t.buffer t)
-  | 0x00000016 -> LC_TWOLEVEL_HINTS (lazy (read_twolevelhints t.buffer t))
+  | 0x00000016 -> LC_TWOLEVEL_HINTS (lazy (read_twolevelhints buf t))
   | 0x00000017 -> LC_PREBIND_CKSUM (Read.u32 t)
   | 0x00000019 -> LC_SEGMENT_64 (lazy (read_segment_64 header buf t))
   | 0x0000001a -> read_routines_command_64 t
@@ -1592,11 +1596,11 @@ let read_load_command header buf t =
   | 0x0000000c -> LC_LOAD_DYLIB (lazy (read_dylib_command t t.buffer))
   | 0x0000000d -> LC_ID_DYLIB (lazy (read_dylib_command t t.buffer))
   | 0x80000018 -> LC_LOAD_WEAK_DYLIB (lazy (read_dylib_command t t.buffer))
-  | 0x8000001c -> read_rpath_command buf t
+  | 0x8000001c -> read_rpath_command t.buffer t
   | 0x80000028 -> read_main_command t
   | 0x80000033 -> read_link_edit t (fun a b -> LC_DYLD_EXPORTS_TRIE (a, b))
   | 0x80000034 -> read_link_edit t (fun a b -> LC_DYLD_CHAINED_FIXUPS (a, b))
-  | n -> LC_UNHANDLED (n, t.buffer)
+  | n -> LC_UNHANDLED (n, Read.buffer t (cmdsize - 8))
 
 let rec read_load_commands header buf t =
   if at_end t then []
