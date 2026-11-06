@@ -49,7 +49,8 @@ type t = {
 (** Object file representation *)
 
 val read : Buffer.t -> t
-(** Parse an object file from a buffer *)
+(** Parse an object file from a buffer. Raises [Invalid_format] for a FAT
+    binary. Use {!read_arch} or {!iter_archs} to choose an architecture. *)
 
 val sections : t -> section array
 (** Get all sections from the object file *)

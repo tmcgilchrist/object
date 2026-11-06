@@ -271,6 +271,31 @@ let test_macho_unhandled () =
       Alcotest.(check int) "first byte" 1 body.{0}
   | _ -> Alcotest.fail "expected LC_UNHANDLED"
 
+let be32 n = List.rev (le32 n)
+
+(* A FAT binary holding one thin arm64 object at offset 32. *)
+let macho_fat () =
+  let thin = macho_segment_64 72 in
+  let size = Bigarray.Array1.dim thin in
+  let fat_arch = List.concat_map be32 [ 0x0100000c; 0; 32; size; 0 ] in
+  let header = be32 0xcafebabe @ be32 1 @ fat_arch @ [ 0; 0; 0; 0 ] in
+  buffer_of_array (Array.of_list (header @ List.init size (fun i -> thin.{i})))
+
+(* Reading a FAT binary as a single image names the functions to use instead. *)
+let test_macho_fat_read () =
+  let buffer = macho_fat () in
+  Alcotest.check_raises "Macho.read"
+    (Invalid_format
+       "FAT binary: select an architecture with read_fat and extract_arch")
+    (fun () -> ignore (Object.Macho.read buffer));
+  Alcotest.check_raises "Object_format.read"
+    (Invalid_format
+       "FAT binary: select an architecture with read_arch or iter_archs")
+    (fun () -> ignore (Object.Object_format.read buffer));
+  let count = ref 0 in
+  Object.Object_format.iter_archs buffer (fun _name _t -> incr count);
+  Alcotest.(check int) "iter_archs" 1 !count
+
 (* .symtab in [elf_symtab_entsize1] claims 0x7fffffff bytes at offset 0x40. *)
 let test_elf_section_out_of_bounds () =
   let buffer = buffer_of_hex elf_symtab_entsize1 in
@@ -482,6 +507,7 @@ let () =
           test_case "prebound dylib" `Quick test_macho_prebound_dylib;
           test_case "twolevel hints" `Quick test_macho_twolevel_hints;
           test_case "unhandled command" `Quick test_macho_unhandled;
+          test_case "FAT binary" `Quick test_macho_fat_read;
         ] );
       ( "elf section headers",
         [
