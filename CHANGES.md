@@ -1,4 +1,6 @@
 # Unreleased
+
+# 0.2
 - #12: Read symbol names without moving the symbol table cursor
 - #15: Bounds-check every `Buffer.Read` function, raising `Invalid_format`
   instead of `Invalid_argument`. Also reject negative positions, LEB128 values
